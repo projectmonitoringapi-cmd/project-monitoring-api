@@ -1,7 +1,5 @@
-import EntryForm from "./project/EntryForm";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return (
-    <EntryForm />
-  );
+export default function HomePage() {
+  redirect("/document-entry");
 }

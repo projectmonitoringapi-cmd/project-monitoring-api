@@ -2,12 +2,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FileText, ClipboardList, CheckCircle2, Send } from "lucide-react";
+import {
+  FileText,
+  ClipboardList,
+  CheckCircle2,
+  Send,
+  ArrowLeft,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-
+import { toast } from "sonner";
 import {
   Select,
   SelectTrigger,
@@ -15,6 +21,8 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
+
+import { useRouter } from "next/navigation";
 
 /* ================= TYPES ================= */
 
@@ -40,7 +48,13 @@ type ChecklistGroup = {
 
 /* ================= COMPONENT ================= */
 
-export default function EntryForm() {
+export default function EntryForm({
+  initialData,
+  isEdit = false,
+}: {
+  initialData?: any;
+  isEdit?: boolean;
+}) {
   const [form, setForm] = useState({
     projectId: "",
     documentType: "",
@@ -54,9 +68,10 @@ export default function EntryForm() {
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [checklist, setChecklist] = useState<ChecklistGroup[]>([]);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
 
-  function updateField(field: string, value: string) {
+  const router = useRouter();
+
+  function updateField(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
@@ -85,12 +100,46 @@ export default function EntryForm() {
       .catch(console.error);
   }, []);
 
+  /* ================= PREFILL (EDIT MODE) ================= */
+
+  useEffect(() => {
+    if (!initialData || documentTypes.length === 0) return;
+
+    const matchedType = documentTypes.find(
+      (d) => d.description === initialData.documentType,
+    );
+
+    setForm({
+      projectId: initialData.projectId || "",
+      documentType: matchedType?.id || "",
+      status: initialData.status || "",
+      dateSubmitted: initialData.dateSubmitted || "",
+      dateApproved: initialData.dateApproved || "",
+      updatedBy: initialData.updatedBy || "",
+      assignPE: initialData.assignPE || "",
+    });
+  }, [initialData, documentTypes]);
+
+  /* ================= CHECKLIST LOAD ================= */
+
   useEffect(() => {
     if (!form.documentType) {
       setChecklist([]);
       return;
     }
 
+    // ✅ EDIT MODE → use saved JSON
+    if (isEdit && initialData?.checklistJson) {
+      try {
+        const parsed = JSON.parse(initialData.checklistJson);
+        setChecklist(parsed);
+        return;
+      } catch (err) {
+        console.error("Invalid checklist JSON", err);
+      }
+    }
+
+    // ✅ CREATE MODE → fetch checklist
     fetch(`/api/checklist?typeId=${form.documentType}`)
       .then((res) => res.json())
       .then((data) => {
@@ -107,53 +156,112 @@ export default function EntryForm() {
         setChecklist(formatted);
       })
       .catch(console.error);
-  }, [form.documentType]);
+  }, [form.documentType, isEdit, initialData]);
 
   /* ================= SUBMIT ================= */
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMessage("");
 
     try {
-      const flatChecklist = checklist.flatMap((group) =>
-        group.items.map((item) => ({
-          checklistId: item.id,
-          checked: item.checked,
-          remarks: item.remarks,
-        })),
+      if (
+        !form.projectId ||
+        !form.documentType ||
+        !form.status ||
+        !form.dateSubmitted ||
+        !form.updatedBy ||
+        !form.assignPE
+      ) {
+        toast.error("Please fill in all required fields");
+        return;
+      }
+
+      // ✅ FORMAT REMARKS (for display only)
+      const formattedRemarks = checklist
+        .map((group) => {
+          const validItems = group.items
+            .filter(
+              (item) =>
+                item.checked && item.remarks && item.remarks.trim() !== "",
+            )
+            .map((item, index) => {
+              return `${index + 1}. ${item.description}\nRemarks: ${item.remarks.trim()}`;
+            });
+
+          if (validItems.length === 0) return null;
+
+          return [
+            `${group.section}`,
+            group.subsection || "",
+            "",
+            validItems.join("\n\n"),
+          ]
+            .filter(Boolean)
+            .join("\n");
+        })
+        .filter(Boolean)
+        .join("\n\n");
+
+      if (!formattedRemarks) {
+        toast.error("Please select at least one checklist item with remarks");
+        return;
+      }
+
+      const documentTypeDescription =
+        documentTypes.find((d) => d.id === form.documentType)?.description ||
+        "";
+
+      const endpoint = isEdit
+        ? `/api/project/${initialData.documentId}`
+        : "/api/project";
+
+      const method = isEdit ? "PUT" : "POST";
+
+      await toast.promise(
+        async () => {
+          const res = await fetch(endpoint, {
+            method,
+            body: JSON.stringify({
+              ...form,
+              documentType: documentTypeDescription,
+              remarks: formattedRemarks,
+              checklist, // ✅ CRITICAL (JSON storage)
+            }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+
+          return data;
+        },
+        {
+          loading: isEdit ? "Updating..." : "Saving...",
+          success: isEdit ? "Updated successfully!" : "Saved successfully!",
+          error: (err) => err.message || "Failed to save",
+        },
       );
 
-      const res = await fetch("/api/project", {
-        method: "POST",
-        body: JSON.stringify({
-          ...form,
-          checklist: flatChecklist,
-        }),
-      });
+      router.push("/");
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setMessage("✅ Saved successfully!");
-      setChecklist([]);
-      setForm({
-        projectId: "",
-        documentType: "",
-        status: "",
-        dateSubmitted: "",
-        dateApproved: "",
-        updatedBy: "",
-        assignPE: "",
-      });
+      if (!isEdit) {
+        setChecklist([]);
+        setForm({
+          projectId: "",
+          documentType: "",
+          status: "",
+          dateSubmitted: "",
+          dateApproved: "",
+          updatedBy: "",
+          assignPE: "",
+        });
+      }
     } catch (err: any) {
-      setMessage("❌ " + err.message);
+      toast.error(err.message || "Server error");
     } finally {
       setLoading(false);
     }
   }
-
   /* ================= UI ================= */
 
   return (
@@ -176,6 +284,7 @@ export default function EntryForm() {
 
             <div className="space-y-4">
               <Input
+                required
                 className="h-11 text-base border-2 border-gray-300 focus:border-blue-500"
                 placeholder="Project ID"
                 value={form.projectId}
@@ -228,6 +337,7 @@ export default function EntryForm() {
               </Select>
 
               <Input
+                required
                 className="h-11 text-base border-2 border-gray-300"
                 type="date"
                 value={form.dateSubmitted}
@@ -235,6 +345,7 @@ export default function EntryForm() {
               />
 
               <Input
+                required
                 className="h-11 text-base border-2 border-gray-300"
                 type="date"
                 value={form.dateApproved}
@@ -242,6 +353,7 @@ export default function EntryForm() {
               />
 
               <Input
+                required
                 className="h-11 text-base border-2 border-gray-300"
                 placeholder="Updated By"
                 value={form.updatedBy}
@@ -249,6 +361,7 @@ export default function EntryForm() {
               />
 
               <Input
+                required
                 className="h-11 text-base border-2 border-gray-300"
                 placeholder="Assign PE"
                 value={form.assignPE}
@@ -256,19 +369,36 @@ export default function EntryForm() {
               />
             </div>
           </div>
-
           {/* Submit */}
-          <div className="mt-6 sticky bottom-0 bg-blue-50 pt-4">
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full h-12 text-base bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Send className="mr-2 w-4 h-4" />
-              {loading ? "Saving..." : "Submit"}
-            </Button>
+          <div className="mt-6 sticky bottom-0 bg-blue-50 pt-4 border-t">
+            <div className="flex gap-3">
+              {/* 🔙 BACK BUTTON */}
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 w-1/2 bg-gray-100 hover:bg-gray-200 text-gray-800"
+                onClick={() => router.push("/")}
+              >
+                <ArrowLeft className="mr-2 w-4 h-4" />
+                Back
+              </Button>
 
-            {message && <p className="text-sm text-gray-700 mt-2">{message}</p>}
+              {/* 🚀 SUBMIT BUTTON */}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="h-12 w-1/2 text-base bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Send className="mr-2 w-4 h-4" />
+                {loading
+                  ? isEdit
+                    ? "Updating..."
+                    : "Saving..."
+                  : isEdit
+                    ? "Update"
+                    : "Submit"}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -303,7 +433,12 @@ export default function EntryForm() {
                           className="w-5 h-5"
                           checked={item.checked}
                           onCheckedChange={(v) =>
-                            updateChecklist(gIndex, iIndex, "checked", v)
+                            updateChecklist(
+                              gIndex,
+                              iIndex,
+                              "checked",
+                              v === true,
+                            )
                           }
                         />
 
@@ -315,7 +450,7 @@ export default function EntryForm() {
                           <Input
                             className="h-10 text-base border-2 border-gray-300"
                             placeholder="Remarks (optional)"
-                            value={item.remarks}
+                            value={item.remarks || ""}
                             onChange={(e) =>
                               updateChecklist(
                                 gIndex,
