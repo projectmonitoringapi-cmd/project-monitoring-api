@@ -9,10 +9,19 @@ export async function POST(req: Request) {
     const { form, checklist } = body;
 
     const html = generateHTML(form, checklist);
+    const isVercel = !!process.env.VERCEL;
+
+    const executablePath = isVercel
+      ? await chromium.executablePath()
+      : undefined;
+
+    if (isVercel && !executablePath) {
+      throw new Error("Chromium not found in Vercel runtime");
+    }
 
     const browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
+      args: isVercel ? chromium.args : [],
+      executablePath,
       headless: true,
     });
 
