@@ -158,6 +158,28 @@ export default function EntryForm({
       .catch(console.error);
   }, [form.documentType, isEdit, initialData]);
 
+  async function generatePDF(formData: any, checklistData: any[]) {
+    const res = await fetch("/api/project/generate-pdf", {
+      method: "POST",
+      body: JSON.stringify({
+        form: formData,
+        checklist: checklistData,
+      }),
+    });
+
+    if (!res.ok) throw new Error("Failed to generate PDF");
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "checklist.pdf";
+    a.click();
+
+    window.URL.revokeObjectURL(url);
+  }
+
   /* ================= SUBMIT ================= */
 
   async function handleSubmit(e: React.FormEvent) {
@@ -226,7 +248,7 @@ export default function EntryForm({
               ...form,
               documentType: documentTypeDescription,
               remarks: formattedRemarks,
-              checklist, // ✅ CRITICAL (JSON storage)
+              checklist,
             }),
           });
 
@@ -242,7 +264,18 @@ export default function EntryForm({
         },
       );
 
-      router.push("/");
+      // ✅ call PDF directly
+      await generatePDF(
+        {
+          ...form,
+          documentType: documentTypeDescription,
+        },
+        checklist,
+      );
+
+      setTimeout(() => {
+        router.push("/");
+      }, 800);
 
       if (!isEdit) {
         setChecklist([]);
@@ -262,6 +295,7 @@ export default function EntryForm({
       setLoading(false);
     }
   }
+
   /* ================= UI ================= */
 
   return (
