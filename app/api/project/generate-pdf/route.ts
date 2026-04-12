@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 export async function POST(req: Request) {
   try {
@@ -10,8 +11,9 @@ export async function POST(req: Request) {
     const html = generateHTML(form, checklist);
 
     const browser = await puppeteer.launch({
+      args: chromium.args,
+      executablePath: await chromium.executablePath(),
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
     const page = await browser.newPage();
@@ -23,17 +25,10 @@ export async function POST(req: Request) {
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: {
-        top: "20mm",
-        bottom: "20mm",
-        left: "15mm",
-        right: "15mm",
-      },
     });
 
     await browser.close();
 
-    // ✅ GUARANTEED ArrayBuffer (no SharedArrayBuffer possibility)
     const arrayBuffer = new Uint8Array(pdfBuffer).slice().buffer;
 
     return new NextResponse(arrayBuffer, {
@@ -43,6 +38,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (err: any) {
+    console.error("PDF ERROR:", err); // 👈 IMPORTANT
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
