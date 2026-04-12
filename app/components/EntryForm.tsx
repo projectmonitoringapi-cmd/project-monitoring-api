@@ -24,8 +24,6 @@ import {
 
 import { useRouter } from "next/navigation";
 
-import html2pdf from "html2pdf.js";
-
 /* ================= TYPES ================= */
 
 type DocumentType = {
@@ -161,6 +159,10 @@ export default function EntryForm({
   }, [form.documentType, isEdit, initialData]);
 
   async function generatePDF(checklist: any[]) {
+    if (typeof window === "undefined") return;
+
+    const html2pdf = (await import("html2pdf.js")).default;
+
     const res = await fetch("/api/project/generate-pdf", {
       method: "POST",
       body: JSON.stringify({ checklist }),
