@@ -24,6 +24,8 @@ import {
 
 import { useRouter } from "next/navigation";
 
+import html2pdf from "html2pdf.js";
+
 /* ================= TYPES ================= */
 
 type DocumentType = {
@@ -158,26 +160,30 @@ export default function EntryForm({
       .catch(console.error);
   }, [form.documentType, isEdit, initialData]);
 
-  async function generatePDF(formData: any, checklistData: any[]) {
+  async function generatePDF(checklist: any[]) {
     const res = await fetch("/api/project/generate-pdf", {
       method: "POST",
-      body: JSON.stringify({
-        form: formData,
-        checklist: checklistData,
-      }),
+      body: JSON.stringify({ checklist }),
     });
 
-    if (!res.ok) throw new Error("Failed to generate PDF");
+    const { html } = await res.json();
 
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
+    const container = document.createElement("div");
+    container.innerHTML = html;
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "checklist.pdf";
-    a.click();
+    document.body.appendChild(container);
 
-    window.URL.revokeObjectURL(url);
+    await html2pdf()
+      .set({
+        margin: 10,
+        filename: "checklist.pdf",
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      })
+      .from(container)
+      .save();
+
+    document.body.removeChild(container);
   }
 
   /* ================= SUBMIT ================= */
@@ -265,13 +271,7 @@ export default function EntryForm({
       );
 
       // ✅ call PDF directly
-      await generatePDF(
-        {
-          ...form,
-          documentType: documentTypeDescription,
-        },
-        checklist,
-      );
+      await generatePDF(checklist);
 
       setTimeout(() => {
         router.push("/");
