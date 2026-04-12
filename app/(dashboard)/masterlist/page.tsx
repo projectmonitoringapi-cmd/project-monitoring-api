@@ -36,7 +36,7 @@ import {
 
 import { toast } from "sonner";
 
-export default function MonitoringPage() {
+export default function MasterlistPage() {
   const [data, setData] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -44,9 +44,7 @@ export default function MonitoringPage() {
   const [loading, setLoading] = useState(false);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
   const [openDialogId, setOpenDialogId] = useState<string | null>(null);
-
   const [confirmText, setConfirmText] = useState("");
 
   const router = useRouter();
@@ -56,7 +54,7 @@ export default function MonitoringPage() {
       setLoading(true);
 
       const res = await fetch(
-        `/api/project?search=${encodeURIComponent(search)}&page=${page}`,
+        `/api/masterlist?search=${encodeURIComponent(search)}&page=${page}`,
       );
 
       const json = await res.json();
@@ -77,33 +75,33 @@ export default function MonitoringPage() {
   return (
     <div className="p-6 bg-white min-h-screen mt-2">
       <div className="max-w-[1400px] mx-auto space-y-6">
-        {/* 🔥 HEADER */}
+        {/* HEADER */}
         <div className="flex items-center justify-between border-b pb-4">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">
-              Document Tracker
+              Project Masterlist
             </h1>
             <p className="text-sm text-gray-500">
-              Manage and monitor all submitted documents
+              Centralized project tracking records
             </p>
           </div>
 
           <Button
             className="flex items-center gap-2 bg-green-600 text-white hover:bg-green-700"
-            onClick={() => router.push("/document-entry/entry")}
+            onClick={() => router.push("/masterlist/entry")}
           >
             <Plus className="h-4 w-4" />
-            Add Document
+            Add Project
           </Button>
         </div>
 
-        {/* 🔍 SEARCH */}
+        {/* SEARCH */}
         <div className="flex items-center justify-between">
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <Input
               className="pl-9"
-              placeholder="Search projects, status, PE..."
+              placeholder="Search project, contractor, engineer..."
               value={search}
               onChange={(e) => {
                 setPage(1);
@@ -113,27 +111,34 @@ export default function MonitoringPage() {
           </div>
         </div>
 
-        {/* 📊 TABLE */}
-        <div className="border rounded-lg overflow-hidden">
+        {/* TABLE */}
+        <div className="border rounded-lg overflow-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-gray-50">
-                <TableHead>Project</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Date Submitted</TableHead>
-                <TableHead>Date Approved</TableHead>
-                <TableHead>Updated By</TableHead>
-                <TableHead>Assign PE</TableHead>
-                <TableHead>Remarks</TableHead>
-                <TableHead className="text-right pr-4">Actions</TableHead>
+                <TableHead>Project ID</TableHead>
+                <TableHead>Contractor</TableHead>
+                <TableHead>Project Name</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Contract ID</TableHead>
+                <TableHead>Original Amount</TableHead>
+                <TableHead>Revised Amount</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead>NTP Date</TableHead>
+                <TableHead>Original Expiry</TableHead>
+                <TableHead>Extension</TableHead>
+                <TableHead>Revised Expiry</TableHead>
+                <TableHead>Project Engineer</TableHead>
+                <TableHead>Project Inspector</TableHead>
+                <TableHead>Resident Engineer</TableHead>
+                <TableHead className="text-center pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
 
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
+                  <TableCell colSpan={16} className="text-center py-12">
                     <div className="flex items-center justify-center gap-2 text-gray-500">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Loading data...
@@ -143,7 +148,7 @@ export default function MonitoringPage() {
               ) : data.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={16}
                     className="text-center py-12 text-gray-500"
                   >
                     No data found
@@ -152,37 +157,36 @@ export default function MonitoringPage() {
               ) : (
                 data.map((row) => (
                   <TableRow
-                    key={row.documentId}
-                    className="hover:bg-gray-50 transition border-b last:border-none"
+                    key={row.pm_id || row.project_id}
+                    className="hover:bg-gray-50"
                   >
-                    <TableCell className="font-medium text-gray-900">
-                      {row.projectId || "—"}
-                    </TableCell>
-
-                    <TableCell>{row.documentType || "—"}</TableCell>
-
+                    <TableCell>{row.project_id || "—"}</TableCell>
+                    <TableCell>{row.contractor || "—"}</TableCell>
+                    <TableCell>{row.project_name || "—"}</TableCell>
+                    <TableCell>{row.project_location || "—"}</TableCell>
+                    <TableCell>{row.contract_id || "—"}</TableCell>
                     <TableCell>
-                      <span
-                        className={`px-2 py-1 rounded-md text-xs font-medium ${
-                          row.status === "Approved"
-                            ? "bg-green-50 text-green-700"
-                            : row.status === "Rejected"
-                              ? "bg-red-50 text-red-700"
-                              : "bg-blue-50 text-blue-700"
-                        }`}
-                      >
-                        {row.status || "—"}
-                      </span>
+                      {row.original_contract_amount != null &&
+                      row.original_contract_amount != ""
+                        ? `₱${row.original_contract_amount}`
+                        : "—"}
                     </TableCell>
-
-                    <TableCell>{row.dateSubmitted || "—"}</TableCell>
-                    <TableCell>{row.dateApproved || "—"}</TableCell>
-                    <TableCell>{row.updatedBy || "—"}</TableCell>
-                    <TableCell>{row.assignPE || "—"}</TableCell>
-
-                    <TableCell className="max-w-[220px] truncate text-gray-500">
-                      {row.remarks || "—"}
+                    <TableCell>
+                      {row.revised_contract_amount != null &&
+                      row.revised_contract_amount != ""
+                        ? `₱${row.revised_contract_amount}`
+                        : "—"}
                     </TableCell>
+                    <TableCell>{row.contract_duration || "—"}</TableCell>
+                    <TableCell>{formatDate(row.ntp_date)}</TableCell>
+                    <TableCell>
+                      {formatDate(row.original_expiry_date)}
+                    </TableCell>
+                    <TableCell>{row.contract_time_extension || "—"}</TableCell>
+                    <TableCell>{formatDate(row.revised_expiry_date)}</TableCell>
+                    <TableCell>{row.project_engineer || "—"}</TableCell>
+                    <TableCell>{row.project_inspector || "—"}</TableCell>
+                    <TableCell>{row.resident_engineer || "—"}</TableCell>
 
                     {/* ACTIONS */}
                     <TableCell className="text-right pr-4">
@@ -194,7 +198,7 @@ export default function MonitoringPage() {
                           className="flex items-center gap-1.5 rounded-lg border-gray-300 
                   hover:bg-blue-50 hover:border-blue-400 hover:text-blue-700"
                           onClick={() =>
-                            router.push(`/document-entry/${row.documentId}`)
+                            router.push(`/masterlist/${row.pm_id}`)
                           }
                         >
                           <Pencil className="h-4 w-4" />
@@ -208,7 +212,7 @@ export default function MonitoringPage() {
                           className="flex items-center gap-1.5 rounded-lg border-red-300 text-red-600
                   hover:bg-red-50 hover:border-red-400 hover:text-red-700"
                           onClick={() => {
-                            setOpenDialogId(row.documentId);
+                            setOpenDialogId(row.pm_id);
                             setConfirmText(""); // ✅ RESET HERE
                           }}
                         >
@@ -217,56 +221,32 @@ export default function MonitoringPage() {
                         </Button>
 
                         <Dialog
-                          open={openDialogId === row.documentId}
+                          open={openDialogId === row.pm_id}
                           onOpenChange={(open) => {
                             if (!open) {
                               setOpenDialogId(null);
-                              setConfirmText(""); // ✅ RESET ON CLOSE
+                              setConfirmText("");
                             }
                           }}
                         >
                           <DialogContent>
                             <DialogHeader>
-                              <DialogTitle className="text-red-600 flex items-center gap-2">
-                                <Trash2 className="h-5 w-5" />
-                                Delete this record?
+                              <DialogTitle className="text-red-600">
+                                Delete project?
                               </DialogTitle>
-
                               <DialogDescription>
-                                This action cannot be undone.
-                                <br />
-                                To confirm, type:
-                                <span className="font-mono bg-muted px-1 py-0.5 rounded ml-1">
-                                  {row.projectId}
+                                Type Project ID to confirm:
+                                <span className="font-mono ml-1">
+                                  {row.project_id}
                                 </span>
                               </DialogDescription>
                             </DialogHeader>
 
-                            <div className="space-y-2 mt-2">
-                              <Input
-                                autoFocus
-                                placeholder={`Type ${row.projectId} to confirm`}
-                                value={confirmText}
-                                onChange={(e) => setConfirmText(e.target.value)}
-                                className={
-                                  confirmText && confirmText !== row.projectId
-                                    ? "border-red-500"
-                                    : ""
-                                }
-                              />
-
-                              {confirmText && confirmText !== row.projectId && (
-                                <p className="text-xs text-red-500">
-                                  Must match the Project ID exactly
-                                </p>
-                              )}
-
-                              {confirmText === row.projectId && (
-                                <p className="text-xs text-green-600">
-                                  ✓ Match confirmed
-                                </p>
-                              )}
-                            </div>
+                            <Input
+                              placeholder="Type Project ID"
+                              value={confirmText}
+                              onChange={(e) => setConfirmText(e.target.value)}
+                            />
 
                             <DialogFooter>
                               <Button
@@ -275,23 +255,22 @@ export default function MonitoringPage() {
                                   setOpenDialogId(null);
                                   setConfirmText("");
                                 }}
-                                disabled={deletingId === row.documentId}
                               >
                                 Cancel
                               </Button>
 
                               <Button
-                                className="bg-red-600 hover:bg-red-700 text-white"
+                                className="bg-red-600 text-white"
                                 disabled={
-                                  confirmText !== row.projectId ||
-                                  deletingId === row.documentId
+                                  confirmText !== row.project_id ||
+                                  deletingId === row.pm_id
                                 }
                                 onClick={async () => {
                                   try {
-                                    setDeletingId(row.documentId);
+                                    setDeletingId(row.pm_id);
 
                                     const res = await fetch(
-                                      `/api/project/${row.documentId}`,
+                                      `/api/masterlist/${row.pm_id}`,
                                       { method: "DELETE" },
                                     );
 
@@ -299,9 +278,7 @@ export default function MonitoringPage() {
                                       throw new Error("Delete failed");
 
                                     setData((prev) =>
-                                      prev.filter(
-                                        (d) => d.documentId !== row.documentId,
-                                      ),
+                                      prev.filter((d) => d.pm_id !== row.pm_id),
                                     );
 
                                     toast.success("Deleted successfully");
@@ -316,9 +293,7 @@ export default function MonitoringPage() {
                                   }
                                 }}
                               >
-                                {deletingId === row.documentId
-                                  ? "Deleting..."
-                                  : "Delete"}
+                                Delete
                               </Button>
                             </DialogFooter>
                           </DialogContent>
@@ -332,7 +307,7 @@ export default function MonitoringPage() {
           </Table>
         </div>
 
-        {/* 📄 PAGINATION */}
+        {/* PAGINATION */}
         <div className="flex items-center justify-between border-t pt-4">
           <Button
             variant="outline"
@@ -362,3 +337,11 @@ export default function MonitoringPage() {
     </div>
   );
 }
+const formatDate = (value: any) => {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "—";
+
+  return date.toLocaleDateString("en-US"); // MM/DD/YYYY
+};

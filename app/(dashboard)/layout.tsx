@@ -1,20 +1,21 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  LayoutDashboard,
-  PlusSquare,
-  FileText,
-  Settings,
-} from "lucide-react";
+import { LayoutDashboard, PlusSquare, FileText, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menu = [
   {
-    label: "Monitoring",
+    label: "Dashboard",
     icon: LayoutDashboard,
     path: "/document-entry",
+  },
+  {
+    label: "Masterlist",
+    icon: LayoutDashboard,
+    path: "/masterlist",
   },
   {
     label: "Add Document",
@@ -33,11 +34,7 @@ const menu = [
   },
 ];
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -46,8 +43,17 @@ export default function DashboardLayout({
       {/* 🧭 SIDEBAR */}
       <aside className="w-64 bg-white border-r flex flex-col">
         {/* 🔥 LOGO */}
-        <div className="h-16 flex items-center px-6 border-b font-bold text-lg">
-          DPWH Project Monitoring
+        <div className="h-16 flex items-center gap-3 px-4 border-b">
+          <img
+            src="/DPWH.png" // 🔥 put your logo in /public/logo.png
+            alt="Logo"
+            className="h-10 w-10 object-contain"
+          />
+
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold text-gray-900">DPWH</span>
+            <span className="text-xs text-gray-500">Project Monitoring</span>
+          </div>
         </div>
 
         {/* 🔹 MENU */}
@@ -64,7 +70,7 @@ export default function DashboardLayout({
                   "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
                   active
                     ? "bg-blue-50 text-blue-700 font-medium"
-                    : "text-gray-600 hover:bg-gray-100"
+                    : "text-gray-600 hover:bg-gray-100",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -76,9 +82,7 @@ export default function DashboardLayout({
       </aside>
 
       {/* 🧱 MAIN CONTENT */}
-      <main className="flex-1 overflow-y-auto bg-gray-50">
-        {children}
-      </main>
+      <main className="flex-1 overflow-y-auto bg-gray-50">{children}</main>
     </div>
   );
 }
