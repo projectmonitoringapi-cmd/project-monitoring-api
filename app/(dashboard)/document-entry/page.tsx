@@ -93,7 +93,7 @@ export default function MonitoringPage() {
             onClick={() => router.push("/document-entry/entry")}
           >
             <Plus className="h-4 w-4" />
-            Add Document
+            Add Project
           </Button>
         </div>
 

@@ -10,7 +10,7 @@ const menu = [
   {
     label: "Dashboard",
     icon: LayoutDashboard,
-    path: "/document-entry",
+    path: "/#",
   },
   {
     label: "Masterlist",
@@ -18,19 +18,9 @@ const menu = [
     path: "/masterlist",
   },
   {
-    label: "Add Document",
-    icon: PlusSquare,
-    path: "/document-entry/entry",
-  },
-  {
-    label: "Document Types",
-    icon: FileText,
-    path: "/document-types",
-  },
-  {
-    label: "Settings",
-    icon: Settings,
-    path: "/settings",
+    label: "Document Tracking",
+    icon: LayoutDashboard,
+    path: "/masterlist",
   },
 ];
 
