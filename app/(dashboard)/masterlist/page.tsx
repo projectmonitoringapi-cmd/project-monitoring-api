@@ -68,6 +68,29 @@ export default function MasterlistPage() {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    try {
+      const res = await fetch(`/api/masterlist/print?search=${search}`);
+
+      if (!res.ok) throw new Error("Failed to generate PDF");
+
+      const blob = await res.blob();
+
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Project_Masterlist_Report.pdf"; // 🔥 file name
+      document.body.appendChild(a);
+      a.click();
+
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, [search, page]);
@@ -95,13 +118,14 @@ export default function MasterlistPage() {
           </Button>
         </div>
 
-        {/* SEARCH */}
+        {/* 🔍 SEARCH + PRINT */}
         <div className="flex items-center justify-between">
+          {/* LEFT: Search */}
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <Input
               className="pl-9"
-              placeholder="Search project, contractor, engineer..."
+              placeholder="Search projects, status, PE..."
               value={search}
               onChange={(e) => {
                 setPage(1);
@@ -109,6 +133,15 @@ export default function MasterlistPage() {
               }}
             />
           </div>
+
+          {/* RIGHT: Print Button */}
+          <Button
+            variant="outline"
+            className="ml-4 flex items-center gap-2"
+            onClick={handleDownloadPDF}
+          >
+            🖨️ Print
+          </Button>
         </div>
 
         {/* TABLE */}

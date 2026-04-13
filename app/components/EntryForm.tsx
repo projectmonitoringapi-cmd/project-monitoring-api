@@ -21,6 +21,13 @@ import { useRouter } from "next/navigation";
 
 /* ================= TYPES ================= */
 
+const BILLING_TYPES = [
+  "Advance Payment",
+  "First Progress Billing",
+  "Interim Progress Billing",
+  "Final Billing",
+];
+
 type DocumentType = {
   id: string;
   description: string;
@@ -49,6 +56,10 @@ type FormState = {
   dateApproved: string;
   updatedBy: string;
   assignPE: string;
+
+  billingId: string;
+  billingCertificateNo: string;
+  amount: string;
 };
 
 /* ================= COMPONENT ================= */
@@ -70,12 +81,24 @@ export default function EntryForm({
     dateApproved: "",
     updatedBy: "",
     assignPE: "",
+    billingId: "",
+    billingCertificateNo: "",
+    amount: "",
   });
 
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [checklist, setChecklist] = useState<ChecklistGroup[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const selectedDocumentTypeDescription =
+    documentTypes.find((d) => d.id === form.documentType)?.description || "";
+
+  const normalizedType = selectedDocumentTypeDescription?.toLowerCase().trim();
+
+  const isBillingType = BILLING_TYPES.some(
+    (t) => t.toLowerCase().trim() === normalizedType,
+  );
+  console.log("Selected:", selectedDocumentTypeDescription);
   /* ================= HELPERS ================= */
 
   const updateField = <K extends keyof FormState>(
@@ -127,8 +150,48 @@ export default function EntryForm({
       dateApproved: initialData.dateApproved || "",
       updatedBy: initialData.updatedBy || "",
       assignPE: initialData.assignPE || "",
+      billingId: "",
+      billingCertificateNo: "",
+      amount: "",
     });
   }, [initialData, documentTypes]);
+
+  /* ================= 🔥 NEW: FETCH BILLING ================= */
+
+  useEffect(() => {
+    if (!initialData?.projectId || !isBillingType) return;
+
+    fetch(`/api/billing?projectId=${initialData.projectId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.data?.length > 0) {
+          const billing = data.data[data.data.length - 1];
+
+          setForm((prev) => ({
+            ...prev,
+            billingId: billing.billingId || "",
+            billingCertificateNo: billing.billingCertificateNo || "",
+            amount: billing.amount || "",
+          }));
+        }
+      })
+      .catch((err) => {
+        console.error("Billing fetch failed:", err);
+      });
+  }, [initialData?.projectId, isBillingType]);
+
+  /* ================= 🔥 NEW: RESET BILLING ================= */
+
+  useEffect(() => {
+    if (!isBillingType) {
+      setForm((prev) => ({
+        ...prev,
+        billingId: "",
+        billingCertificateNo: "",
+        amount: "",
+      }));
+    }
+  }, [isBillingType]);
 
   /* ================= CHECKLIST ================= */
 
@@ -213,6 +276,20 @@ export default function EntryForm({
       return;
     }
 
+    const documentTypeDescription =
+      documentTypes.find((d) => d.id === form.documentType)?.description || "";
+
+    const normalizedType = documentTypeDescription?.toLowerCase().trim();
+
+    const isBilling = BILLING_TYPES.some(
+      (t) => t.toLowerCase().trim() === normalizedType,
+    );
+
+    if (isBilling && (!form.billingCertificateNo || !form.amount)) {
+      toast.error("Billing Certificate No. and Amount are required");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -239,10 +316,6 @@ export default function EntryForm({
         return;
       }
 
-      const documentTypeDescription =
-        documentTypes.find((d) => d.id === form.documentType)?.description ||
-        "";
-
       const endpoint = isEdit
         ? `/api/project/${initialData.documentId}`
         : "/api/project";
@@ -251,8 +324,14 @@ export default function EntryForm({
 
       await toast.promise(
         async () => {
-          const res = await fetch(endpoint, {
+          /* =====================================================
+           1️⃣ SAVE TO /api/project (PRIMARY)
+        ===================================================== */
+          const projectRes = await fetch(endpoint, {
             method,
+            headers: {
+              "Content-Type": "application/json",
+            },
             body: JSON.stringify({
               ...form,
               documentType: documentTypeDescription,
@@ -261,10 +340,51 @@ export default function EntryForm({
             }),
           });
 
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error);
+          const projectData = await projectRes.json();
+          if (!projectRes.ok) throw new Error(projectData.error);
 
-          return data;
+          /* =====================================================
+           2️⃣ SEND TO /api/billing (SECONDARY)
+        ===================================================== */
+          if (isBilling) {
+            try {
+              const billingPayload = {
+                projectId: form.projectId,
+                billingType: documentTypeDescription,
+                billingCertificateNo: form.billingCertificateNo,
+                amount: form.amount,
+                dateSubmitted: form.dateSubmitted,
+                status: form.status,
+                updatedBy: form.updatedBy,
+                remarks: formattedRemarks,
+              };
+
+              const billingEndpoint = form.billingId
+                ? `/api/billing/${form.billingId}` // ✅ UPDATE
+                : "/api/billing"; // ✅ CREATE
+
+              const billingMethod = form.billingId ? "PUT" : "POST";
+
+              const billingRes = await fetch(billingEndpoint, {
+                method: billingMethod,
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(billingPayload),
+              });
+
+              if (!billingRes.ok) {
+                console.warn(
+                  `Billing API failed (${billingMethod}):`,
+                  billingRes.status,
+                );
+              }
+            } catch (err) {
+              console.error("Billing API error:", err);
+            }
+          }
+
+          return projectData;
         },
         {
           loading: isEdit ? "Updating..." : "Saving...",
@@ -382,6 +502,27 @@ export default function EntryForm({
             </div>
           </InfoSection>
 
+          {isBillingType && (
+            <InfoSection title="Billing Information">
+              <div className="space-y-4">
+                <InfoItem
+                  label="Billing Certificate No."
+                  value={form.billingCertificateNo}
+                  editable
+                  onChange={(v) => updateField("billingCertificateNo", v)}
+                />
+
+                <InfoItem
+                  label="Amount"
+                  value={form.amount}
+                  editable
+                  type="number"
+                  onChange={(v) => updateField("amount", v)}
+                />
+              </div>
+            </InfoSection>
+          )}
+
           {/* ACTION BAR */}
           <div className="mt-6 sticky bottom-0 bg-blue-50 pt-4 border-t">
             <div className="flex items-center justify-between">
@@ -440,10 +581,7 @@ export default function EntryForm({
                   {/* ITEMS */}
                   <div className="space-y-4">
                     {group.items.map((item, iIndex) => (
-                      <div
-                        key={item.id}
-                        className="flex gap-3 p-3 rounded-lg"
-                      >
+                      <div key={item.id} className="flex gap-3 p-3 rounded-lg">
                         {/* CHECKBOX */}
                         <Checkbox
                           className="border-2 border-gray-700 mt-1"

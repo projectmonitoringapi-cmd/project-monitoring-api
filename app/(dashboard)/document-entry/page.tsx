@@ -70,6 +70,29 @@ export default function MonitoringPage() {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    try {
+      const res = await fetch(`/api/project/print?search=${search}`);
+
+      if (!res.ok) throw new Error("Failed to generate PDF");
+
+      const blob = await res.blob();
+
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Document_Tracker_Report.pdf"; // 🔥 file name
+      document.body.appendChild(a);
+      a.click();
+
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, [search, page]);
@@ -97,8 +120,9 @@ export default function MonitoringPage() {
           </Button>
         </div>
 
-        {/* 🔍 SEARCH */}
+        {/* 🔍 SEARCH + PRINT */}
         <div className="flex items-center justify-between">
+          {/* LEFT: Search */}
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <Input
@@ -111,6 +135,15 @@ export default function MonitoringPage() {
               }}
             />
           </div>
+
+          {/* RIGHT: Print Button */}
+          <Button
+            variant="outline"
+            className="ml-4 flex items-center gap-2"
+            onClick={handleDownloadPDF}
+          >
+            🖨️ Print
+          </Button>
         </div>
 
         {/* 📊 TABLE */}
@@ -290,21 +323,64 @@ export default function MonitoringPage() {
                                   try {
                                     setDeletingId(row.documentId);
 
-                                    const res = await fetch(
+                                    /* =====================================================
+       1️⃣ DELETE PROJECT
+    ===================================================== */
+                                    const projectRes = await fetch(
                                       `/api/project/${row.documentId}`,
                                       { method: "DELETE" },
                                     );
 
-                                    if (!res.ok)
-                                      throw new Error("Delete failed");
+                                    if (!projectRes.ok) {
+                                      throw new Error("Project delete failed");
+                                    }
 
+                                    /* =====================================================
+       2️⃣ FETCH BILLING BY projectId
+    ===================================================== */
+                                    try {
+                                      const billingRes = await fetch(
+                                        `/api/billing?projectId=${row.projectId}`,
+                                      );
+
+                                      const billingData =
+                                        await billingRes.json();
+
+                                      if (billingData?.data?.length > 0) {
+                                        /* =====================================================
+           3️⃣ DELETE ALL RELATED BILLING RECORDS
+        ===================================================== */
+                                        await Promise.all(
+                                          billingData.data.map((b: any) =>
+                                            fetch(
+                                              `/api/billing/${b.billingId}`,
+                                              {
+                                                method: "DELETE",
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } catch (billingErr) {
+                                      console.warn(
+                                        "Billing delete failed:",
+                                        billingErr,
+                                      );
+                                      // ❗ do NOT block main delete
+                                    }
+
+                                    /* =====================================================
+                                      4️⃣ UPDATE UI
+                                    ===================================================== */
                                     setData((prev) =>
                                       prev.filter(
                                         (d) => d.documentId !== row.documentId,
                                       ),
                                     );
 
-                                    toast.success("Deleted successfully");
+                                    toast.success(
+                                      "Deleted successfully (with billing)",
+                                    );
 
                                     setOpenDialogId(null);
                                     setConfirmText("");

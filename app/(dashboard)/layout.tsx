@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, PlusSquare, FileText, Settings } from "lucide-react";
+import { LayoutDashboard, PlusSquare, FileText, Settings, SquareChartGantt, File, ReceiptText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const menu = [
@@ -14,13 +15,18 @@ const menu = [
   },
   {
     label: "Masterlist",
-    icon: LayoutDashboard,
+    icon: SquareChartGantt,
     path: "/masterlist",
   },
   {
     label: "Document Tracking",
-    icon: LayoutDashboard,
-    path: "/masterlist",
+    icon: File,
+    path: "/document-entry",
+  },
+  {
+    label: "Billing Tracking",
+    icon: ReceiptText,
+    path: "/billing",
   },
 ];
 
