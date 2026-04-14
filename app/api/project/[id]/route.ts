@@ -110,19 +110,37 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params; // ✅ FIX: async params
+    const { id } = await params;
 
     const sheets = await getSheetsClient();
 
+    /* =====================================================
+       1️⃣ GET SHEET METADATA (for sheetId)
+    ===================================================== */
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.SPREADSHEET_ID!,
+    });
+
+    const sheet = meta.data.sheets?.find(
+      (s) => s.properties?.title === "DOCUMENT_TRACKER",
+    );
+
+    const sheetId = sheet?.properties?.sheetId;
+
+    if (sheetId === undefined) {
+      throw new Error("DOCUMENT_TRACKER sheet not found");
+    }
+
+    /* =====================================================
+       2️⃣ GET DATA
+    ===================================================== */
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
       range: "DOCUMENT_TRACKER!A:J",
     });
 
-    // ✅ skip header row
     const rows = (res.data.values || []).slice(1);
 
-    // ✅ robust match (trim important)
     const rowIndex = rows.findIndex((r) => r[0]?.trim() === id.trim());
 
     if (rowIndex === -1) {
@@ -130,12 +148,27 @@ export async function DELETE(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // ✅ adjust index (because of slice + 1-based sheet)
     const actualRow = rowIndex + 2;
 
-    await sheets.spreadsheets.values.clear({
+    /* =====================================================
+       3️⃣ DELETE ROW (REAL DELETE)
+    ===================================================== */
+    await sheets.spreadsheets.batchUpdate({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: `DOCUMENT_TRACKER!A${actualRow}:J${actualRow}`,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId,
+                dimension: "ROWS",
+                startIndex: actualRow - 1, // zero-based
+                endIndex: actualRow,
+              },
+            },
+          },
+        ],
+      },
     });
 
     return NextResponse.json({ success: true });

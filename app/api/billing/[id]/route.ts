@@ -114,21 +114,38 @@ export async function PUT(
 /* ================= DELETE ================= */
 export async function DELETE(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    const billingId = id?.trim(); // ✅ FIX
+    const billingId = id?.trim();
 
     if (!billingId) {
-      return NextResponse.json(
-        { error: "Missing billingId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing billingId" }, { status: 400 });
     }
 
     const sheets = await getSheetsClient();
 
+    /* =====================================================
+       1️⃣ GET SHEET ID
+    ===================================================== */
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.SPREADSHEET_ID!,
+    });
+
+    const sheet = meta.data.sheets?.find(
+      (s) => s.properties?.title === "BILLING_TRACKER",
+    );
+
+    const sheetId = sheet?.properties?.sheetId;
+
+    if (sheetId === undefined) {
+      throw new Error("BILLING_TRACKER sheet not found");
+    }
+
+    /* =====================================================
+       2️⃣ GET DATA
+    ===================================================== */
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
       range: "BILLING_TRACKER!A:I",
@@ -137,31 +154,40 @@ export async function DELETE(
     const rows = (res.data.values || []).slice(1);
 
     const rowIndex = rows.findIndex(
-      (r) => (r[0] || "").toString().trim() === billingId // ✅ column A
+      (r) => (r[0] || "").toString().trim() === billingId,
     );
 
     if (rowIndex === -1) {
       console.log("❌ DELETE BILLING NOT FOUND:", billingId);
-      return NextResponse.json(
-        { error: "Not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
 
-    await sheets.spreadsheets.values.clear({
+    /* =====================================================
+       3️⃣ DELETE ROW
+    ===================================================== */
+    await sheets.spreadsheets.batchUpdate({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: `BILLING_TRACKER!A${actualRow}:I${actualRow}`,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId,
+                dimension: "ROWS",
+                startIndex: actualRow - 1,
+                endIndex: actualRow,
+              },
+            },
+          },
+        ],
+      },
     });
 
     return NextResponse.json({ success: true });
-
   } catch (err) {
     console.error("DELETE ERROR:", err);
-    return NextResponse.json(
-      { error: "Delete failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }
