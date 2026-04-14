@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
 
-/* ================= GET (BY ID) ================= */
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+/* ================= GET (BY PROJECT ID) ================= */
+export async function GET(req: Request) {
   try {
-    const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    const projectId = searchParams.get("projectId")?.trim();
+
+    if (!projectId) {
+      return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
+    }
 
     const sheets = await getSheetsClient();
 
@@ -18,22 +20,24 @@ export async function GET(
 
     const rows = (res.data.values || []).slice(1);
 
-    const match = rows.find((r) => r[0] === id);
+    const match = rows.find(
+      (r) => (r[1] || "").toString().trim() === projectId,
+    );
 
     if (!match) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     return NextResponse.json({
-      billingId: match[0],
-      projectId: match[1],
-      billingType: match[2],
-      billingCertificateNo: match[3],
-      amount: match[4],
-      dateSubmitted: match[5],
-      status: match[6],
-      updatedBy: match[7],
-      remarks: match[8],
+      billingId: match[0] || "",
+      projectId: match[1] || "",
+      billingType: match[2] || "",
+      billingCertificateNo: match[3] || "",
+      amount: match[4] || "",
+      dateSubmitted: match[5] || "",
+      status: match[6] || "",
+      updatedBy: match[7] || "",
+      remarks: match[8] || "",
     });
   } catch (err) {
     console.error(err);
@@ -44,11 +48,17 @@ export async function GET(
 /* ================= UPDATE ================= */
 export async function PUT(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }, // ✅ FIX
 ) {
   try {
-    const { id } = await params;
+    const { id } = await params; // ✅ REQUIRED
+    const cleanId = id?.trim();
+
     const body = await req.json();
+
+    if (!cleanId) {
+      return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+    }
 
     const sheets = await getSheetsClient();
 
@@ -60,29 +70,26 @@ export async function PUT(
     const rows = (res.data.values || []).slice(1);
 
     const rowIndex = rows.findIndex(
-      (r) => r[0]?.trim() === id.trim()
+      (r) => (r[0] || "").toString().trim() === cleanId,
     );
 
     if (rowIndex === -1) {
-      console.log("❌ BILLING ID NOT FOUND:", id);
-      return NextResponse.json(
-        { error: "Not found" },
-        { status: 404 }
-      );
+      console.log("❌ BILLING ID NOT FOUND:", cleanId);
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
 
     const updatedRow = [
-      id,                               // A billingId
-      body.projectId,                   // B
-      body.billingType,                 // C
-      body.billingCertificateNo || "",  // D
-      body.amount || "",                // E
-      body.dateSubmitted || "",         // F
-      body.status,                      // G
-      body.updatedBy || "",             // H
-      body.remarks || "",               // I
+      cleanId,
+      body.projectId || "",
+      body.billingType || "",
+      body.billingCertificateNo || "",
+      body.amount || "",
+      body.dateSubmitted || "",
+      body.status || "",
+      body.updatedBy || "",
+      body.remarks || "",
     ];
 
     await sheets.spreadsheets.values.update({
@@ -95,23 +102,23 @@ export async function PUT(
     });
 
     return NextResponse.json({ success: true });
-
   } catch (err) {
     console.error(err);
-    return NextResponse.json(
-      { error: "Update failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
 }
 
 /* ================= DELETE ================= */
 export async function DELETE(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } },
 ) {
   try {
-    const { id } = await params;
+    const projectId = params.id?.trim();
+
+    if (!projectId) {
+      return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
+    }
 
     const sheets = await getSheetsClient();
 
@@ -123,15 +130,12 @@ export async function DELETE(
     const rows = (res.data.values || []).slice(1);
 
     const rowIndex = rows.findIndex(
-      (r) => r[0]?.trim() === id.trim()
+      (r) => (r[1] || "").toString().trim() === projectId, // ✅ column B
     );
 
     if (rowIndex === -1) {
-      console.log("❌ DELETE BILLING NOT FOUND:", id);
-      return NextResponse.json(
-        { error: "Not found" },
-        { status: 404 }
-      );
+      console.log("❌ DELETE PROJECT NOT FOUND:", projectId);
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
@@ -142,12 +146,8 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
-
   } catch (err) {
     console.error("DELETE ERROR:", err);
-    return NextResponse.json(
-      { error: "Delete failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }

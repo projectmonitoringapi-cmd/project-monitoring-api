@@ -45,7 +45,7 @@ export async function GET(
 /* ================= UPDATE ================= */
 export async function PUT(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
@@ -60,35 +60,31 @@ export async function PUT(
 
     const rows = (res.data.values || []).slice(1); // skip header
 
-    const rowIndex = rows.findIndex(
-      (r) => r[0]?.trim() === id.trim()
-    );
+    const rowIndex = rows.findIndex((r) => r[0]?.trim() === id.trim());
 
     if (rowIndex === -1) {
       console.log("❌ ID NOT FOUND:", id);
-      console.log("Sheet IDs:", rows.map(r => r[0]));
-      return NextResponse.json(
-        { error: "Not found" },
-        { status: 404 }
+      console.log(
+        "Sheet IDs:",
+        rows.map((r) => r[0]),
       );
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
 
-    const checklistJson = body.checklist
-      ? JSON.stringify(body.checklist)
-      : "";
+    const checklistJson = body.checklist ? JSON.stringify(body.checklist) : "";
 
     const updatedRow = [
       id,
-      body.projectId,
-      body.documentType,
-      body.status,
-      body.dateSubmitted,
-      body.dateApproved,
-      body.updatedBy,
-      body.assignPE,
-      body.remarks,
+      body.projectId || "",
+      body.documentType || "",
+      body.status || "",
+      body.dateSubmitted || "",
+      body.dateApproved?.trim() || "", // ✅ optional handled
+      body.updatedBy || "",
+      body.assignPE || "",
+      body.remarks || "",
       checklistJson,
     ];
 
@@ -102,20 +98,16 @@ export async function PUT(
     });
 
     return NextResponse.json({ success: true });
-
   } catch (err) {
     console.error(err);
-    return NextResponse.json(
-      { error: "Update failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
 }
 
 /* ================= DELETE ================= */
 export async function DELETE(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params; // ✅ FIX: async params
@@ -131,16 +123,11 @@ export async function DELETE(
     const rows = (res.data.values || []).slice(1);
 
     // ✅ robust match (trim important)
-    const rowIndex = rows.findIndex(
-      (r) => r[0]?.trim() === id.trim()
-    );
+    const rowIndex = rows.findIndex((r) => r[0]?.trim() === id.trim());
 
     if (rowIndex === -1) {
       console.log("❌ DELETE NOT FOUND:", id);
-      return NextResponse.json(
-        { error: "Not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     // ✅ adjust index (because of slice + 1-based sheet)
@@ -152,12 +139,8 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
-
   } catch (err) {
     console.error("DELETE ERROR:", err);
-    return NextResponse.json(
-      { error: "Delete failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }

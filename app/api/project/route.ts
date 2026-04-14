@@ -16,10 +16,9 @@ export async function POST(req: Request) {
       updatedBy,
       assignPE,
       remarks,
-      checklist, // ✅ NEW (raw checklist object)
+      checklist,
     } = body;
 
-    // ✅ strict validation
     if (!projectId || !documentType || !status) {
       return NextResponse.json(
         { error: "Missing required fields" },
@@ -27,35 +26,43 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ generate Document ID
     const documentId = randomUUID();
 
-    // ✅ convert checklist → JSON string
     const checklistJson = checklist
       ? JSON.stringify(checklist)
       : "";
 
     const sheets = await getSheetsClient();
 
+    // ✅ normalize values (IMPORTANT)
+    const cleanDateSubmitted = dateSubmitted?.trim() || "";
+    const cleanDateApproved = dateApproved?.trim() || ""; // ✅ optional safe
+
+    const updatedRow = [
+      documentId,
+      projectId || "",
+      documentType || "",
+      status || "",
+      cleanDateSubmitted,
+      cleanDateApproved, // ✅ FIXED
+      updatedBy || "",
+      assignPE || "",
+      remarks || "",
+      checklistJson,
+    ];
+
+    console.log("📝 CREATE PAYLOAD:", {
+      documentId,
+      status,
+      cleanDateApproved,
+    });
+
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "DOCUMENT_TRACKER!A:J", // 🔥 UPDATED (added column J)
+      range: "DOCUMENT_TRACKER!A:J",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [
-          [
-            documentId,           // A
-            projectId,            // B
-            documentType,         // C
-            status,               // D
-            dateSubmitted || "",  // E
-            dateApproved || "",   // F
-            updatedBy || "",      // G
-            assignPE || "",       // H
-            remarks || "",        // I (formatted)
-            checklistJson,        // J ✅ JSON
-          ],
-        ],
+        values: [updatedRow],
       },
     });
 

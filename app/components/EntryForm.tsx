@@ -98,7 +98,13 @@ export default function EntryForm({
   const isBillingType = BILLING_TYPES.some(
     (t) => t.toLowerCase().trim() === normalizedType,
   );
-  console.log("Selected:", selectedDocumentTypeDescription);
+
+  console.log("📌 Document Type Debug:", {
+    formDocumentType: form.documentType,
+    selectedDescription: selectedDocumentTypeDescription,
+    normalizedType,
+    isBillingType,
+  });
   /* ================= HELPERS ================= */
 
   const updateField = <K extends keyof FormState>(
@@ -138,16 +144,25 @@ export default function EntryForm({
   useEffect(() => {
     if (!initialData || documentTypes.length === 0) return;
 
+    console.log("📥 Prefill Triggered:", {
+      initialData,
+      documentTypes,
+    });
+
     const matchedType = documentTypes.find(
-      (d) => d.description === initialData.documentType,
+      (d) =>
+        d.description?.toLowerCase().trim() ===
+        initialData.documentType?.toLowerCase().trim(),
     );
+
+    console.log("🔍 Matched Type:", matchedType);
 
     setForm({
       projectId: initialData.projectId || "",
       documentType: matchedType?.id || "",
       status: initialData.status || "",
       dateSubmitted: initialData.dateSubmitted || "",
-      dateApproved: initialData.dateApproved || "",
+      dateApproved: initialData.dateApproved?.trim() || "",
       updatedBy: initialData.updatedBy || "",
       assignPE: initialData.assignPE || "",
       billingId: "",
@@ -159,13 +174,31 @@ export default function EntryForm({
   /* ================= 🔥 NEW: FETCH BILLING ================= */
 
   useEffect(() => {
-    if (!initialData?.projectId || !isBillingType) return;
+    console.log("🚀 Billing Effect Triggered:", {
+      projectId: form.projectId,
+      isBillingType,
+    });
 
-    fetch(`/api/billing?projectId=${initialData.projectId}`)
-      .then((res) => res.json())
-      .then((data) => {
+    if (!form.projectId || !isBillingType) {
+      console.log("⛔ Billing fetch skipped:", {
+        reason: !form.projectId ? "Missing projectId" : "Not a billing type",
+      });
+      return;
+    }
+
+    console.log("📡 Fetching billing for:", form.projectId);
+
+    fetch(`/api/billing?projectId=${form.projectId}`)
+      .then(async (res) => {
+        console.log("📡 Billing Response Status:", res.status);
+        const data = await res.json();
+
+        console.log("📦 Billing API Response:", data);
+
         if (data?.data?.length > 0) {
-          const billing = data.data[data.data.length - 1];
+          const billing = data.data[data.data.length - 1]; // latest record
+
+          console.log("✅ Billing FOUND:", billing);
 
           setForm((prev) => ({
             ...prev,
@@ -173,12 +206,14 @@ export default function EntryForm({
             billingCertificateNo: billing.billingCertificateNo || "",
             amount: billing.amount || "",
           }));
+        } else {
+          console.log("⚠️ No billing records found");
         }
       })
       .catch((err) => {
-        console.error("Billing fetch failed:", err);
+        console.error("❌ Billing fetch failed:", err);
       });
-  }, [initialData?.projectId, isBillingType]);
+  }, [form.projectId, isBillingType]);
 
   /* ================= 🔥 NEW: RESET BILLING ================= */
 
@@ -231,32 +266,30 @@ export default function EntryForm({
   /* ================= PDF ================= */
 
   async function generatePDF(checklist: ChecklistGroup[]) {
-    if (typeof window === "undefined") return;
-
-    const html2pdf = (await import("html2pdf.js")).default;
-
     const res = await fetch("/api/project/generate-pdf", {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ checklist }),
     });
 
-    const { html } = await res.json();
+    if (!res.ok) {
+      throw new Error("Failed to generate PDF");
+    }
 
-    const container = document.createElement("div");
-    container.innerHTML = html;
-    document.body.appendChild(container);
+    const blob = await res.blob(); // ✅ IMPORTANT
 
-    await html2pdf()
-      .set({
-        margin: 10,
-        filename: "checklist.pdf",
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: "mm", format: "a4" },
-      })
-      .from(container)
-      .save();
+    const url = window.URL.createObjectURL(blob);
 
-    document.body.removeChild(container);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "checklist.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
   }
 
   /* ================= SUBMIT ================= */
@@ -334,6 +367,7 @@ export default function EntryForm({
             },
             body: JSON.stringify({
               ...form,
+              dateApproved: form.dateApproved?.trim() || null, // ✅ make optional
               documentType: documentTypeDescription,
               remarks: formattedRemarks,
               checklist,
@@ -346,6 +380,14 @@ export default function EntryForm({
           /* =====================================================
            2️⃣ SEND TO /api/billing (SECONDARY)
         ===================================================== */
+
+          console.log("📤 Billing Submit Debug:", {
+            billingId: form.billingId,
+            endpoint: form.billingId
+              ? `/api/billing/${form.billingId}`
+              : "/api/billing",
+            method: form.billingId ? "PUT" : "POST",
+          });
           if (isBilling) {
             try {
               const billingPayload = {
@@ -480,7 +522,7 @@ export default function EntryForm({
 
               <InfoItem
                 label="Date Approved"
-                value={form.dateApproved}
+                value={form.dateApproved || ""}
                 editable
                 type="date"
                 onChange={(v) => updateField("dateApproved", v)}
