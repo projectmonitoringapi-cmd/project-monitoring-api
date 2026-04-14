@@ -165,7 +165,7 @@ export default function EntryForm({
       dateApproved: initialData.dateApproved?.trim() || "",
       updatedBy: initialData.updatedBy || "",
       assignPE: initialData.assignPE || "",
-      billingId: "",
+      billingId: initialData.documentId || "", // ✅ KEY CHANGE
       billingCertificateNo: "",
       amount: "",
     });
@@ -174,46 +174,32 @@ export default function EntryForm({
   /* ================= 🔥 NEW: FETCH BILLING ================= */
 
   useEffect(() => {
-    console.log("🚀 Billing Effect Triggered:", {
-      projectId: form.projectId,
-      isBillingType,
-    });
+    if (!form.billingId || !isBillingType) return;
 
-    if (!form.projectId || !isBillingType) {
-      console.log("⛔ Billing fetch skipped:", {
-        reason: !form.projectId ? "Missing projectId" : "Not a billing type",
-      });
-      return;
-    }
+    console.log("📡 Fetching billing by ID:", form.billingId);
 
-    console.log("📡 Fetching billing for:", form.projectId);
-
-    fetch(`/api/billing?projectId=${form.projectId}`)
+    fetch(`/api/billing/${form.billingId}`)
       .then(async (res) => {
         console.log("📡 Billing Response Status:", res.status);
-        const data = await res.json();
 
+        if (!res.ok) {
+          console.log("⚠️ No billing found for this document");
+          return;
+        }
+
+        const data = await res.json();
         console.log("📦 Billing API Response:", data);
 
-        if (data?.data?.length > 0) {
-          const billing = data.data[data.data.length - 1]; // latest record
-
-          console.log("✅ Billing FOUND:", billing);
-
-          setForm((prev) => ({
-            ...prev,
-            billingId: billing.billingId || "",
-            billingCertificateNo: billing.billingCertificateNo || "",
-            amount: billing.amount || "",
-          }));
-        } else {
-          console.log("⚠️ No billing records found");
-        }
+        setForm((prev) => ({
+          ...prev,
+          billingCertificateNo: data.billingCertificateNo || "",
+          amount: data.amount || "",
+        }));
       })
       .catch((err) => {
         console.error("❌ Billing fetch failed:", err);
       });
-  }, [form.projectId, isBillingType]);
+  }, [form.billingId, isBillingType]);
 
   /* ================= 🔥 NEW: RESET BILLING ================= */
 
@@ -391,6 +377,9 @@ export default function EntryForm({
           if (isBilling) {
             try {
               const billingPayload = {
+                documentId: isEdit
+                  ? initialData.documentId
+                  : projectData.documentId, // ✅ from POST response
                 projectId: form.projectId,
                 billingType: documentTypeDescription,
                 billingCertificateNo: form.billingCertificateNo,
@@ -401,11 +390,8 @@ export default function EntryForm({
                 remarks: formattedRemarks,
               };
 
-              const billingEndpoint = form.billingId
-                ? `/api/billing/${form.billingId}` // ✅ UPDATE
-                : "/api/billing"; // ✅ CREATE
-
-              const billingMethod = form.billingId ? "PUT" : "POST";
+              const billingEndpoint = "/api/billing";
+              const billingMethod = "POST";
 
               const billingRes = await fetch(billingEndpoint, {
                 method: billingMethod,

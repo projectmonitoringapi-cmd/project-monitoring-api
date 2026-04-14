@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
 
-/* ================= GET (BY PROJECT ID) ================= */
-export async function GET(req: Request) {
+/* ================= GET (BY ID) ================= */
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
-    const { searchParams } = new URL(req.url);
-    const projectId = searchParams.get("projectId")?.trim();
+    const { id } = await params;
+    const billingId = id?.trim();
 
-    if (!projectId) {
-      return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
+    if (!billingId) {
+      return NextResponse.json({ error: "Missing billingId" }, { status: 400 });
     }
 
     const sheets = await getSheetsClient();
@@ -21,7 +24,7 @@ export async function GET(req: Request) {
     const rows = (res.data.values || []).slice(1);
 
     const match = rows.find(
-      (r) => (r[1] || "").toString().trim() === projectId,
+      (r) => (r[0] || "").toString().trim() === billingId, // ✅ column A
     );
 
     if (!match) {
@@ -48,16 +51,16 @@ export async function GET(req: Request) {
 /* ================= UPDATE ================= */
 export async function PUT(
   req: Request,
-  { params }: { params: Promise<{ id: string }> }, // ✅ FIX
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params; // ✅ REQUIRED
-    const cleanId = id?.trim();
+    const { id } = await params;
+    const billingId = id?.trim(); // ✅ renamed
 
     const body = await req.json();
 
-    if (!cleanId) {
-      return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+    if (!billingId) {
+      return NextResponse.json({ error: "Missing billingId" }, { status: 400 });
     }
 
     const sheets = await getSheetsClient();
@@ -70,18 +73,18 @@ export async function PUT(
     const rows = (res.data.values || []).slice(1);
 
     const rowIndex = rows.findIndex(
-      (r) => (r[0] || "").toString().trim() === cleanId,
+      (r) => (r[0] || "").toString().trim() === billingId, // ✅ column A
     );
 
     if (rowIndex === -1) {
-      console.log("❌ BILLING ID NOT FOUND:", cleanId);
+      console.log("❌ BILLING ID NOT FOUND:", billingId);
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
 
     const updatedRow = [
-      cleanId,
+      billingId,
       body.projectId || "",
       body.billingType || "",
       body.billingCertificateNo || "",
@@ -111,13 +114,17 @@ export async function PUT(
 /* ================= DELETE ================= */
 export async function DELETE(
   req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const projectId = params.id?.trim();
+    const { id } = await params;
+    const billingId = id?.trim(); // ✅ FIX
 
-    if (!projectId) {
-      return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
+    if (!billingId) {
+      return NextResponse.json(
+        { error: "Missing billingId" },
+        { status: 400 }
+      );
     }
 
     const sheets = await getSheetsClient();
@@ -130,12 +137,15 @@ export async function DELETE(
     const rows = (res.data.values || []).slice(1);
 
     const rowIndex = rows.findIndex(
-      (r) => (r[1] || "").toString().trim() === projectId, // ✅ column B
+      (r) => (r[0] || "").toString().trim() === billingId // ✅ column A
     );
 
     if (rowIndex === -1) {
-      console.log("❌ DELETE PROJECT NOT FOUND:", projectId);
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      console.log("❌ DELETE BILLING NOT FOUND:", billingId);
+      return NextResponse.json(
+        { error: "Not found" },
+        { status: 404 }
+      );
     }
 
     const actualRow = rowIndex + 2;
@@ -146,8 +156,12 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
+
   } catch (err) {
     console.error("DELETE ERROR:", err);
-    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Delete failed" },
+      { status: 500 }
+    );
   }
 }

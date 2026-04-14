@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
-import { randomUUID } from "crypto";
 
 /* =========================================================
    POST → CREATE BILLING
@@ -11,6 +10,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const {
+      documentId,
       projectId,
       billingType,
       billingCertificateNo,
@@ -21,40 +21,67 @@ export async function POST(req: Request) {
       remarks,
     } = body;
 
-    console.log(body);
-
-    // ✅ validation
-    if (!projectId || !billingType || !status) {
+    if (!documentId || !projectId || !billingType || !status) {
       return NextResponse.json(
         { error: "Missing required fields" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const billingId = randomUUID();
+    const billingId = documentId.trim();
 
     const sheets = await getSheetsClient();
 
-    await sheets.spreadsheets.values.append({
+    const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
       range: "BILLING_TRACKER!A:I",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [
-          [
-            billingId,                     // A
-            projectId,                     // B
-            billingType,                   // C
-            billingCertificateNo || "",    // D
-            amount || "",                  // E
-            dateSubmitted || "",           // F
-            status,                        // G
-            updatedBy || "",               // H
-            remarks || "",                 // I
-          ],
-        ],
-      },
     });
+
+    const rows = (res.data.values || []).slice(1);
+
+    const rowIndex = rows.findIndex(
+      (r) => (r[0] || "").toString().trim() === billingId,
+    );
+
+    const newRow = [
+      billingId,
+      projectId,
+      billingType,
+      billingCertificateNo || "",
+      amount || "",
+      dateSubmitted || "",
+      status,
+      updatedBy || "",
+      remarks || "",
+    ];
+
+    if (rowIndex !== -1) {
+      // ✅ UPDATE EXISTING
+      const actualRow = rowIndex + 2;
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.SPREADSHEET_ID!,
+        range: `BILLING_TRACKER!A${actualRow}:I${actualRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [newRow],
+        },
+      });
+
+      console.log("🔄 Billing UPDATED:", billingId);
+    } else {
+      // ✅ CREATE NEW
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.SPREADSHEET_ID!,
+        range: "BILLING_TRACKER!A:I",
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [newRow],
+        },
+      });
+
+      console.log("🆕 Billing CREATED:", billingId);
+    }
 
     return NextResponse.json({
       success: true,
@@ -62,10 +89,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("POST ERROR:", error);
-    return NextResponse.json(
-      { error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 
@@ -136,7 +160,7 @@ export async function GET(req: Request) {
           ]
             .join(" ")
             .toLowerCase()
-            .includes(search)
+            .includes(search),
         )
       : data;
 
@@ -155,9 +179,6 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error("GET ERROR:", error);
-    return NextResponse.json(
-      { error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

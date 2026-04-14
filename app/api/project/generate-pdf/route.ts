@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
@@ -73,8 +72,11 @@ export async function POST(req: Request) {
     /* -------------------------------------------------------
        HEADER
     -------------------------------------------------------- */
-    const logoPath = path.join(process.cwd(), "public", "DPWH.png");
+    const logoPath = path.join(process.cwd(), "public/DPWH.png");
 
+    /* -------------------------------------------------------
+       HEADER FUNCTION
+    -------------------------------------------------------- */
     const drawHeader = () => {
       if (fs.existsSync(logoPath)) {
         doc.image(logoPath, 40, 30, { width: 50 });
@@ -84,9 +86,7 @@ export async function POST(req: Request) {
         .font("Regular")
         .fontSize(10)
         .text("Republic of the Philippines", { align: "center" })
-        .text("DEPARTMENT OF PUBLIC WORKS AND HIGHWAYS", {
-          align: "center",
-        })
+        .text("DEPARTMENT OF PUBLIC WORKS AND HIGHWAYS", { align: "center" })
         .font("Bold")
         .fontSize(12)
         .text("CAGAYAN DE ORO CITY 2ND DISTRICT ENGINEERING OFFICE", {
@@ -106,13 +106,18 @@ export async function POST(req: Request) {
         });
 
       doc.moveDown(1);
+
+      doc.y = 120; // consistent start
     };
 
+    /* -------------------------------------------------------
+       START FIRST PAGE
+    -------------------------------------------------------- */
     drawHeader();
 
     /* -------------------------------------------------------
-   GROUP DATA
--------------------------------------------------------- */
+       GROUP DATA
+    -------------------------------------------------------- */
     const grouped = checklist.reduce((acc: any, group: any) => {
       if (!acc[group.section]) acc[group.section] = [];
       acc[group.section].push(group);
@@ -120,8 +125,8 @@ export async function POST(req: Request) {
     }, {});
 
     /* -------------------------------------------------------
-   CONFIG (LAYOUT)
--------------------------------------------------------- */
+       LAYOUT CONFIG
+    -------------------------------------------------------- */
     const startX = 50;
     const checkboxSize = 10;
     const colCheckbox = startX;
@@ -130,78 +135,38 @@ export async function POST(req: Request) {
     const maxWidth = 480;
 
     /* -------------------------------------------------------
-   HELPER: ROMAN NUMERALS
--------------------------------------------------------- */
-    function toRoman(num: number) {
-      const romans = [
-        "",
-        "I",
-        "II",
-        "III",
-        "IV",
-        "V",
-        "VI",
-        "VII",
-        "VIII",
-        "IX",
-        "X",
-      ];
-      return romans[num] || num;
-    }
-
-    /* -------------------------------------------------------
-   RENDER CHECKLIST
--------------------------------------------------------- */
-    Object.keys(grouped).forEach((section, sIndex) => {
-      const roman = toRoman(sIndex + 1);
-      const colHeader = colText; // ✅ align with item text
-
-      // 🔥 Page break safety
+       RENDER
+    -------------------------------------------------------- */
+    Object.keys(grouped).forEach((section) => {
+      // soft page break
       if (doc.y > doc.page.height - 120) {
         doc.addPage();
         drawHeader();
       }
 
-      /* -------------------------------
-     SECTION HEADER (II. Title)
-  -------------------------------- */
-     doc.font("Bold").fontSize(10).text(section, colCheckbox, doc.y);
+      /* SECTION HEADER */
+      doc.font("Bold").fontSize(10).text(section, colCheckbox);
 
-      doc.moveDown(0.3);
+      doc.moveDown(0.4);
 
       grouped[section].forEach((group: any) => {
-        /* -------------------------------
-       SUBSECTION
-    -------------------------------- */
+        /* SUBSECTION */
         if (group.subsection) {
-          doc
-            .font("Bold")
-            .fontSize(9)
-            .text(group.subsection, colCheckbox, doc.y);
-
+          doc.font("Bold").fontSize(9).text(group.subsection, colCheckbox);
           doc.moveDown(0.4);
         }
 
-        /* -------------------------------
-       ITEMS
-    -------------------------------- */
-        group.items.forEach((item: any, index: number) => {
-          const y = doc.y;
-
-          const text = `${item.description}`;
-          const number = `${item.itemNo}.`;
-
-          const textHeight = doc.heightOfString(text, {
-            width: maxWidth,
-          });
-
-          // 🔥 Page break
-          if (doc.y + textHeight > doc.page.height - 60) {
+        /* ITEMS */
+        group.items.forEach((item: any) => {
+          // soft page break (continuous flow)
+          if (doc.y > doc.page.height - 100) {
             doc.addPage();
             drawHeader();
           }
 
-          /* ✅ CHECKBOX (DRAWN) */
+          const y = doc.y;
+
+          /* CHECKBOX */
           doc.rect(colCheckbox, y, checkboxSize, checkboxSize).stroke();
 
           if (item.checked) {
@@ -212,26 +177,27 @@ export async function POST(req: Request) {
               .stroke();
           }
 
-          /* ✅ NUMBER COLUMN */
-          doc.font("Regular").fontSize(9).text(number, colNumber, y);
+          /* NUMBER */
+          doc.font("Regular").fontSize(9).text(`${item.itemNo}.`, colNumber, y);
 
-          /* ✅ TEXT COLUMN */
-          doc.font("Regular").fontSize(9).text(text, colText, y, {
+          /* TEXT (FLOW MODE) */
+          doc.x = colText;
+          doc.y = y;
+          doc.text(item.description, {
             width: maxWidth,
           });
 
-          /* ✅ REMARKS (INDENTED) */
+          /* REMARKS */
           if (item.remarks) {
-            doc
-              .font("Regular")
-              .fontSize(9)
-              .fillColor("#000")
-              .text(`Remarks: ${item.remarks}`, colText + 10, doc.y);
+            doc.moveDown(0.2);
 
-            doc.fillColor("#000");
+            doc.x = colText + 10;
+            doc.text(`Remarks: ${item.remarks}`, {
+              width: maxWidth - 10,
+            });
           }
 
-          doc.moveDown(0.5);
+          doc.moveDown(0.7);
         });
 
         doc.moveDown(0.5);
@@ -242,9 +208,6 @@ export async function POST(req: Request) {
 
     doc.end();
 
-    /* -------------------------------------------------------
-       RETURN STREAM
-    -------------------------------------------------------- */
     return new Response(webStream, {
       headers: {
         "Content-Type": "application/pdf",
