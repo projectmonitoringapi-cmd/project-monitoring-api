@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 
 import { useRouter } from "next/navigation";
+import { useRef } from "react";
 
 /* ================= TYPES ================= */
 
@@ -99,6 +100,18 @@ export default function EntryForm({
     (t) => t.toLowerCase().trim() === normalizedType,
   );
 
+  type Project = {
+    projectId: string;
+    projectName: string;
+    projectEngineer: string;
+  };
+
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [openProjectDropdown, setOpenProjectDropdown] = useState(false);
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   console.log("📌 Document Type Debug:", {
     formDocumentType: form.documentType,
     selectedDescription: selectedDocumentTypeDescription,
@@ -129,6 +142,64 @@ export default function EntryForm({
       return updated;
     });
   }
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setOpenProjectDropdown(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/autofill")
+      .then((res) => res.json())
+      .then((data) => {
+        console.log("📦 PROJECT MASTERLIST:", data);
+        setProjects(data);
+      })
+      .catch(console.error);
+  }, []);
+
+  const filteredProjects = projects.filter((p) =>
+    `${p.projectId} ${p.projectName} ${p.projectEngineer}`
+      .toLowerCase()
+      .includes(projectSearch.toLowerCase()),
+  );
+
+  useEffect(() => {
+    if (!projectSearch) return;
+
+    // ✅ Always extract ONLY the ID
+    const cleanId = projectSearch.split(" - ")[0].trim();
+
+    const match = projects.find(
+      (p) => p.projectId.toLowerCase() === cleanId.toLowerCase(),
+    );
+
+    if (match) {
+      setForm((prev) => ({
+        ...prev,
+        projectId: match.projectId, // ✅ ONLY ID SAVED
+        assignPE: match.projectEngineer || "",
+      }));
+
+      // ✅ Display with name
+      setProjectSearch(`${match.projectId} - ${match.projectName}`);
+    } else {
+      setForm((prev) => ({
+        ...prev,
+        projectId: cleanId, // ✅ STILL ONLY ID
+        // do NOT touch assignPE
+      }));
+    }
+  }, [projectSearch, projects]);
 
   /* ================= FETCH ================= */
 
@@ -169,7 +240,15 @@ export default function EntryForm({
       billingCertificateNo: "",
       amount: "",
     });
-  }, [initialData, documentTypes]);
+
+    const match = projects.find((p) => p.projectId === initialData.projectId);
+
+    if (match) {
+      setProjectSearch(`${match.projectId} - ${match.projectName}`);
+    } else {
+      setProjectSearch(initialData.projectId || "");
+    }
+  }, [initialData, documentTypes, projects]);
 
   /* ================= 🔥 NEW: FETCH BILLING ================= */
 
@@ -446,12 +525,55 @@ export default function EntryForm({
         <div className="w-1/2 border-r bg-blue-50 p-6 overflow-y-auto">
           <InfoSection title="Project Information">
             <div className="space-y-4">
-              <InfoItem
-                label="Project ID"
-                value={form.projectId}
-                editable
-                onChange={(v) => updateField("projectId", v)}
-              />
+              <Field label="Project ID">
+                <div className="relative" ref={dropdownRef}>
+                  <Input
+                    placeholder="Search Project ID or Name..."
+                    value={projectSearch}
+                    onChange={(e) => {
+                      setProjectSearch(e.target.value);
+                      setOpenProjectDropdown(true);
+                    }}
+                    onFocus={() => setOpenProjectDropdown(true)}
+                  />
+
+                  {openProjectDropdown && (
+                    <div className="absolute z-50 bg-white border w-full max-h-60 overflow-y-auto rounded shadow">
+                      {filteredProjects.length === 0 ? (
+                        <div className="p-2 text-sm text-gray-500">
+                          No results found
+                        </div>
+                      ) : (
+                        filteredProjects.map((p) => (
+                          <div
+                            key={p.projectId}
+                            className="p-2 hover:bg-blue-100 cursor-pointer text-sm border-b"
+                            onClick={() => {
+                              setForm((prev) => ({
+                                ...prev,
+                                projectId: p.projectId, // ✅ ONLY ID
+                                assignPE: p.projectEngineer || "",
+                              }));
+
+                              // display only
+                              setProjectSearch(
+                                `${p.projectId} - ${p.projectName}`,
+                              );
+
+                              setOpenProjectDropdown(false);
+                            }}
+                          >
+                            <div className="font-medium">{p.projectId}</div>
+                            <div className="text-xs text-gray-500">
+                              {p.projectName}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Field>
 
               <Field label="Document Type">
                 <Select
@@ -492,6 +614,7 @@ export default function EntryForm({
                   <SelectContent>
                     <SelectItem value="__empty__">Select status</SelectItem>
                     <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Compiled">Compiled</SelectItem>
                     <SelectItem value="Approved">Approved</SelectItem>
                     <SelectItem value="Rejected">Rejected</SelectItem>
                   </SelectContent>
@@ -539,13 +662,16 @@ export default function EntryForm({
                   editable
                   onChange={(v) => updateField("billingCertificateNo", v)}
                 />
-
                 <InfoItem
                   label="Amount"
-                  value={form.amount}
+                  value={form.amount || "0.00"}
                   editable
-                  type="number"
-                  onChange={(v) => updateField("amount", v)}
+                  onChange={(v) => {
+                    // allow only digits and one decimal point
+                    if (/^\d*\.?\d*$/.test(v)) {
+                      updateField("amount", v);
+                    }
+                  }}
                 />
               </div>
             </InfoSection>
@@ -688,6 +814,7 @@ type InfoItemProps = {
   value: string;
   editable?: boolean;
   onChange?: (v: string) => void;
+  onBlur?: (v: string) => void; // ✅ ADD THIS
   type?: string;
 };
 
