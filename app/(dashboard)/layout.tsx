@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const menu = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/#" },
+  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { label: "Masterlist", icon: SquareChartGantt, path: "/masterlist" },
   { label: "Document Tracking", icon: File, path: "/document-entry" },
   { label: "Billing Tracking", icon: ReceiptText, path: "/billing" },
