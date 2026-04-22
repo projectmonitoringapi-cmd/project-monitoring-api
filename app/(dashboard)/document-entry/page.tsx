@@ -208,8 +208,12 @@ export default function MonitoringPage() {
                       </span>
                     </TableCell>
 
-                    <TableCell>{row.dateSubmitted || "—"}</TableCell>
-                    <TableCell>{row.dateApproved || "—"}</TableCell>
+                    <TableCell>
+                      {formatDisplayDateTime(row.dateSubmitted)}
+                    </TableCell>
+                    <TableCell>
+                      {formatDisplayDateTime(row.dateApproved)}
+                    </TableCell>
                     <TableCell>{row.updatedBy || "—"}</TableCell>
                     <TableCell>{row.assignPE || "—"}</TableCell>
 
@@ -437,4 +441,21 @@ export default function MonitoringPage() {
       </div>
     </div>
   );
+}
+
+function formatDisplayDateTime(value?: string) {
+  if (!value) return "—";
+
+  const d = new Date(value.replace(" ", "T")); // ensure valid parse
+
+  if (isNaN(d.getTime())) return value;
+
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true, // ✅ AM/PM
+  });
 }

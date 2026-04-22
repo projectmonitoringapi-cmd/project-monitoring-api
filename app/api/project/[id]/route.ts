@@ -80,8 +80,8 @@ export async function PUT(
       body.projectId || "",
       body.documentType || "",
       body.status || "",
-      body.dateSubmitted || "",
-      body.dateApproved?.trim() || "", // ✅ optional handled
+      formatDateTime(body.dateSubmitted),
+      formatDateTime(body.dateApproved),
       body.updatedBy || "",
       body.assignPE || "",
       body.remarks || "",
@@ -102,6 +102,15 @@ export async function PUT(
     console.error(err);
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "";
+
+  const [date, time] = value.split("T");
+  if (!date || !time) return "";
+
+  return `${date} ${time}:00`; // normalized format
 }
 
 /* ================= DELETE ================= */

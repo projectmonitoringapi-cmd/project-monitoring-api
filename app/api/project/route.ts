@@ -22,21 +22,19 @@ export async function POST(req: Request) {
     if (!projectId || !documentType || !status) {
       return NextResponse.json(
         { error: "Missing required fields" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const documentId = randomUUID();
 
-    const checklistJson = checklist
-      ? JSON.stringify(checklist)
-      : "";
+    const checklistJson = checklist ? JSON.stringify(checklist) : "";
 
     const sheets = await getSheetsClient();
 
     // ✅ normalize values (IMPORTANT)
-    const cleanDateSubmitted = dateSubmitted?.trim() || "";
-    const cleanDateApproved = dateApproved?.trim() || ""; // ✅ optional safe
+    const cleanDateSubmitted = formatDateTime(dateSubmitted);
+    const cleanDateApproved = formatDateTime(dateApproved);
 
     const updatedRow = [
       documentId,
@@ -70,13 +68,9 @@ export async function POST(req: Request) {
       success: true,
       documentId,
     });
-
   } catch (error) {
     console.error("API ERROR:", error);
-    return NextResponse.json(
-      { error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 
@@ -104,6 +98,21 @@ function mapRow(row: any[]) {
     assignPE: row[COLUMN_MAP.assignPE] || "",
     remarks: row[COLUMN_MAP.remarks] || "",
   };
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "";
+
+  const d = new Date(value);
+
+  if (isNaN(d.getTime())) return "";
+
+  const pad = (n: number) => n.toString().padStart(2, "0");
+
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
 }
 
 export async function GET(req: Request) {
@@ -140,7 +149,7 @@ export async function GET(req: Request) {
           ]
             .join(" ")
             .toLowerCase()
-            .includes(search)
+            .includes(search),
         )
       : data;
 
@@ -159,9 +168,6 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error("GET ERROR:", error);
-    return NextResponse.json(
-      { error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

@@ -502,7 +502,7 @@ export default function EntryForm({
 
       await generatePDF(checklist);
 
-      router.push("/");
+      router.push("/document-entry");
     } catch (err: any) {
       toast.error(err.message || "Server error");
     } finally {
@@ -625,7 +625,7 @@ export default function EntryForm({
                 label="Date Submitted"
                 value={form.dateSubmitted}
                 editable
-                type="date"
+                type="datetime-local"
                 onChange={(v) => updateField("dateSubmitted", v)}
               />
 
@@ -633,7 +633,7 @@ export default function EntryForm({
                 label="Date Approved"
                 value={form.dateApproved || ""}
                 editable
-                type="date"
+                type="datetime-local"
                 onChange={(v) => updateField("dateApproved", v)}
               />
 
@@ -683,7 +683,7 @@ export default function EntryForm({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.push("/")}
+                onClick={() => router.push("/document-entry")}
               >
                 <ArrowLeft className="mr-2 w-5 h-5" />
                 Back
