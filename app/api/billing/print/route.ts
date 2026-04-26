@@ -1,15 +1,36 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { PassThrough } from "stream";
 import fs from "fs";
 import path from "path";
 import { getSheetsClient } from "@/lib/googleSheets";
+import { logAudit } from "@/lib/audit";
+import { cookies } from "next/headers";
 
-/* -------------------------------------------------------
-   Column Mapping
--------------------------------------------------------- */
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return { username: "system", name: "System" };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return { username: "system", name: "System" };
+  }
+}
+
+/* ================= COLUMN MAP ================= */
 const COLUMN_MAP = {
   billingId: 0,
   projectId: 1,
@@ -36,17 +57,15 @@ function mapRow(row: any[]) {
   };
 }
 
-/* -------------------------------------------------------
-   API
--------------------------------------------------------- */
+/* ================= API ================= */
 export async function GET(req: Request) {
   try {
+    const currentUser = await getCurrentUser(); // ✅ FIXED
+
     const { searchParams } = new URL(req.url);
     const search = (searchParams.get("search") || "").toLowerCase();
 
-    /* -------------------------------------------------------
-       1️⃣ Fetch Data (Google Sheets)
-    -------------------------------------------------------- */
+    /* ================= FETCH ================= */
     const sheets = await getSheetsClient();
 
     const res = await sheets.spreadsheets.values.get({
@@ -62,8 +81,8 @@ export async function GET(req: Request) {
           [
             d.projectId,
             d.billingType,
-            d.billingCertificateNo || "",
-            d.amount || "",
+            d.billingCertificateNo,
+            d.amount,
             d.dateSubmitted,
             d.status,
             d.updatedBy,
@@ -75,23 +94,27 @@ export async function GET(req: Request) {
         )
       : data;
 
-    const fontRegular = path.join(
-      process.cwd(),
-      "public",
-      "fonts",
-      "Roboto-Regular.ttf",
-    );
+    /* ================= AUDIT ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "EXPORT_PDF",
+      entity: "BILLING_TRACKER",
+      entityId: "REPORT",
+      oldValue: null,
+      newValue: {
+        search,
+        totalRecords: filtered.length,
+      },
+    });
 
-    const fontBold = path.join(
-      process.cwd(),
-      "public",
-      "fonts",
-      "Roboto-Bold.ttf",
-    );
-    /* -------------------------------------------------------
-       2️⃣ Setup PDF (STREAMING)
-    -------------------------------------------------------- */
-    console.log(fontRegular, fontBold);
+    /* ================= PDF SETUP ================= */
+    const fontRegular = path.join(process.cwd(), "public/fonts/Roboto-Regular.ttf");
+    const fontBold = path.join(process.cwd(), "public/fonts/Roboto-Bold.ttf");
+
+    if (!fs.existsSync(fontRegular)) {
+      throw new Error("Roboto-Regular.ttf not found");
+    }
 
     const stream = new PassThrough();
 
@@ -100,7 +123,6 @@ export async function GET(req: Request) {
       layout: "landscape",
       margins: { top: 40, left: 40, right: 40, bottom: 30 },
       bufferPages: true,
-      font: fontRegular,
     });
 
     doc.pipe(stream);
@@ -113,20 +135,11 @@ export async function GET(req: Request) {
       },
     });
 
-    /* -------------------------------------------------------
-       3️⃣ FONT FIX (CRITICAL - NO HELVETICA ERROR)
-    -------------------------------------------------------- */
-    if (!fs.existsSync(fontRegular)) {
-      throw new Error("Roboto-Regular.ttf not found in /public/fonts");
-    }
-
     doc.registerFont("Regular", fontRegular);
     doc.registerFont("Bold", fontBold);
-    doc.font("Regular");
-    /* -------------------------------------------------------
-       4️⃣ HEADER (DPWH STYLE)
-    -------------------------------------------------------- */
-    const logoPath = path.join(process.cwd(), "public", "DPWH.png");
+
+    /* ================= HEADER ================= */
+    const logoPath = path.join(process.cwd(), "public/DPWH.png");
 
     const drawHeader = () => {
       if (fs.existsSync(logoPath)) {
@@ -137,9 +150,7 @@ export async function GET(req: Request) {
         .font("Regular")
         .fontSize(10)
         .text("Republic of the Philippines", 0, 30, { align: "center" })
-        .text("DEPARTMENT OF PUBLIC WORKS AND HIGHWAYS", {
-          align: "center",
-        })
+        .text("DEPARTMENT OF PUBLIC WORKS AND HIGHWAYS", { align: "center" })
         .font("Bold")
         .fontSize(12)
         .text("CAGAYAN DE ORO CITY 2ND DISTRICT ENGINEERING OFFICE", {
@@ -154,13 +165,11 @@ export async function GET(req: Request) {
 
     drawHeader();
 
-    /* -------------------------------------------------------
-       5️⃣ TABLE HEADER
-    -------------------------------------------------------- */
+    /* ================= TABLE HEADER ================= */
     const headers = [
       "Project ID",
       "Billing Type",
-      "Billing Certificate No.",
+      "Certificate No.",
       "Amount",
       "Date Submitted",
       "Status",
@@ -191,19 +200,17 @@ export async function GET(req: Request) {
 
     drawTableHeader();
 
-    /* -------------------------------------------------------
-       6️⃣ ROWS (NO CUT, AUTO WRAP)
-    -------------------------------------------------------- */
+    /* ================= ROWS ================= */
     filtered.forEach((row, idx) => {
       const values = [
-        row.projectId, // Project ID
-        row.billingType, // Billing Type
-        row.billingCertificateNo || "", // Billing Certificate No.
-        row.amount || "", // Amount
-        row.dateSubmitted, // Date Submitted
-        row.status, // Status
-        row.updatedBy, // Updated By
-        row.remarks, // Remarks
+        row.projectId,
+        row.billingType,
+        row.billingCertificateNo,
+        row.amount,
+        row.dateSubmitted,
+        row.status,
+        row.updatedBy,
+        row.remarks,
       ];
 
       let rowHeight = 0;
@@ -215,7 +222,6 @@ export async function GET(req: Request) {
         if (h > rowHeight) rowHeight = h;
       });
 
-      // 🔥 Page break BEFORE drawing
       if (doc.y + rowHeight > doc.page.height - 60) {
         doc.addPage();
         drawHeader();
@@ -224,12 +230,8 @@ export async function GET(req: Request) {
 
       const y = doc.y;
 
-      // Zebra striping
       if (idx % 2 === 0) {
-        doc
-          .rect(40, y - 2, 800, rowHeight + 4)
-          .fillColor("#f5f5f5")
-          .fill();
+        doc.rect(40, y - 2, 800, rowHeight + 4).fill("#f5f5f5");
         doc.fillColor("#000");
       }
 
@@ -239,47 +241,39 @@ export async function GET(req: Request) {
         doc
           .font("Regular")
           .fontSize(8)
-          .text(String(val || ""), x, y, {
-            width: widths[i],
-          });
+          .text(String(val || ""), x, y, { width: widths[i] });
       });
 
       doc.y = y + rowHeight + 6;
     });
 
-    /* -------------------------------------------------------
-       7️⃣ PAGE NUMBERS
-    -------------------------------------------------------- */
+    /* ================= FOOTER ================= */
     const pageCount = doc.bufferedPageRange().count;
 
     for (let i = 0; i < pageCount; i++) {
       doc.switchToPage(i);
 
-      const footerY = doc.page.height - doc.page.margins.bottom - 30;
-
-      doc.fontSize(9).text(`Page ${i + 1} of ${pageCount}`, 50, footerY, {
-        width: doc.page.width - 100,
+      doc.text(`Page ${i + 1} of ${pageCount}`, 50, doc.page.height - 40, {
         align: "center",
+        width: doc.page.width - 100,
       });
     }
 
     doc.end();
 
-    /* -------------------------------------------------------
-       8️⃣ RETURN
-    -------------------------------------------------------- */
     return new Response(webStream, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition":
-          "attachment; filename=Document_Tracker_Report.pdf",
+          "attachment; filename=Billing_Tracker_Report.pdf",
       },
     });
   } catch (err: any) {
     console.error("❌ PDF ERROR:", err);
+
     return NextResponse.json(
       { success: false, message: err.message },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

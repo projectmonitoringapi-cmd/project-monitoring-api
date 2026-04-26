@@ -212,6 +212,19 @@ export default function EntryForm({
 
   /* ================= PREFILL ================= */
 
+  function toDateTimeLocal(value?: string) {
+    if (!value) return "";
+
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return "";
+
+    const pad = (n: number) => n.toString().padStart(2, "0");
+
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+      d.getDate(),
+    )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
   useEffect(() => {
     if (!initialData || documentTypes.length === 0) return;
 
@@ -232,11 +245,11 @@ export default function EntryForm({
       projectId: initialData.projectId || "",
       documentType: matchedType?.id || "",
       status: initialData.status || "",
-      dateSubmitted: initialData.dateSubmitted || "",
-      dateApproved: initialData.dateApproved?.trim() || "",
+      dateSubmitted: toDateTimeLocal(initialData.dateSubmitted),
+      dateApproved: toDateTimeLocal(initialData.dateApproved),
       updatedBy: initialData.updatedBy || "",
       assignPE: initialData.assignPE || "",
-      billingId: initialData.documentId || "", // ✅ KEY CHANGE
+      billingId: initialData.documentId || "",
       billingCertificateNo: "",
       amount: "",
     });

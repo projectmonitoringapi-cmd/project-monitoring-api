@@ -1,12 +1,35 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
+import { logAudit } from "@/lib/audit";
+import { cookies } from "next/headers";
+
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return { username: "system", name: "System" };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return { username: "system", name: "System" };
+  }
+}
 
 /* =========================================================
-   POST → CREATE BILLING
+   POST → CREATE / UPDATE BILLING
 ========================================================= */
 export async function POST(req: Request) {
   try {
+    const currentUser = await getCurrentUser(); // ✅ FIXED
     const body = await req.json();
 
     const {
@@ -17,7 +40,6 @@ export async function POST(req: Request) {
       amount,
       dateSubmitted,
       status,
-      updatedBy,
       remarks,
     } = body;
 
@@ -51,44 +73,90 @@ export async function POST(req: Request) {
       amount || "",
       dateSubmitted || "",
       status,
-      updatedBy || "",
+      currentUser.username, // ✅ ALWAYS FROM SESSION
       remarks || "",
     ];
 
+    const newData = {
+      billingId,
+      projectId,
+      billingType,
+      billingCertificateNo,
+      amount,
+      status,
+    };
+
     if (rowIndex !== -1) {
-      // ✅ UPDATE EXISTING
+      /* ================= UPDATE ================= */
+
       const actualRow = rowIndex + 2;
+
+      const oldRow = rows[rowIndex];
+
+      const oldData = {
+        billingId: oldRow[0],
+        projectId: oldRow[1],
+        billingType: oldRow[2],
+        billingCertificateNo: oldRow[3],
+        amount: oldRow[4],
+        status: oldRow[6],
+      };
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.SPREADSHEET_ID!,
         range: `BILLING_TRACKER!A${actualRow}:I${actualRow}`,
         valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [newRow],
-        },
+        requestBody: { values: [newRow] },
+      });
+
+      await logAudit({
+        username: currentUser.username,
+        name: currentUser.name,
+        action: "UPDATE",
+        entity: "BILLING_TRACKER",
+        entityId: billingId,
+        oldValue: oldData,
+        newValue: newData,
       });
 
       console.log("🔄 Billing UPDATED:", billingId);
     } else {
-      // ✅ CREATE NEW
+      /* ================= CREATE ================= */
+
       await sheets.spreadsheets.values.append({
         spreadsheetId: process.env.SPREADSHEET_ID!,
         range: "BILLING_TRACKER!A:I",
         valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [newRow],
-        },
+        requestBody: { values: [newRow] },
+      });
+
+      await logAudit({
+        username: currentUser.username,
+        name: currentUser.name,
+        action: "CREATE",
+        entity: "BILLING_TRACKER",
+        entityId: billingId,
+        oldValue: null,
+        newValue: newData,
       });
 
       console.log("🆕 Billing CREATED:", billingId);
     }
 
-    return NextResponse.json({
-      success: true,
-      billingId,
-    });
+    return NextResponse.json({ success: true, billingId });
   } catch (error) {
     console.error("POST ERROR:", error);
+
+    await logAudit({
+      username: "system",
+      name: "System",
+      action: "ERROR",
+      entity: "BILLING_TRACKER",
+      entityId: "POST",
+      oldValue: null,
+      newValue: { error: "Server error" },
+    });
+
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
@@ -110,15 +178,15 @@ const COLUMN_MAP = {
 
 function mapRow(row: any[]) {
   return {
-    billingId: row[COLUMN_MAP.billingId] || "",
-    projectId: row[COLUMN_MAP.projectId] || "",
-    billingType: row[COLUMN_MAP.billingType] || "",
-    billingCertificateNo: row[COLUMN_MAP.billingCertificateNo] || "",
-    amount: row[COLUMN_MAP.amount] || "",
-    dateSubmitted: row[COLUMN_MAP.dateSubmitted] || "",
-    status: row[COLUMN_MAP.status] || "",
-    updatedBy: row[COLUMN_MAP.updatedBy] || "",
-    remarks: row[COLUMN_MAP.remarks] || "",
+    billingId: row[0] || "",
+    projectId: row[1] || "",
+    billingType: row[2] || "",
+    billingCertificateNo: row[3] || "",
+    amount: row[4] || "",
+    dateSubmitted: row[5] || "",
+    status: row[6] || "",
+    updatedBy: row[7] || "",
+    remarks: row[8] || "",
   };
 }
 
@@ -127,6 +195,8 @@ function mapRow(row: any[]) {
 ========================================================= */
 export async function GET(req: Request) {
   try {
+    const currentUser = await getCurrentUser(); // ✅ FIXED
+
     const { searchParams } = new URL(req.url);
 
     const search = (searchParams.get("search") || "").toLowerCase();
@@ -142,10 +212,8 @@ export async function GET(req: Request) {
 
     const rows = res.data.values || [];
 
-    // skip header
     const data = rows.slice(1).map(mapRow);
 
-    // 🔍 SEARCH
     const filtered = search
       ? data.filter((d) =>
           [
@@ -166,7 +234,20 @@ export async function GET(req: Request) {
 
     const total = filtered.length;
 
-    // 📄 PAGINATION
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "READ",
+      entity: "BILLING_TRACKER",
+      entityId: "LIST",
+      oldValue: null,
+      newValue: {
+        search,
+        totalRecords: total,
+        page,
+      },
+    });
+
     const start = (page - 1) * pageSize;
     const paginated = filtered.slice(start, start + pageSize);
 
@@ -179,6 +260,17 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error("GET ERROR:", error);
+
+    await logAudit({
+      username: "system",
+      name: "System",
+      action: "ERROR",
+      entity: "BILLING_TRACKER",
+      entityId: "GET",
+      oldValue: null,
+      newValue: { error: "Server error" },
+    });
+
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

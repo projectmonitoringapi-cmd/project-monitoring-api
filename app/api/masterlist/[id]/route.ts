@@ -1,12 +1,43 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
+import { logAudit } from "@/lib/audit";
+import { cookies } from "next/headers";
 
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+}
+
+/* ================= GET (BY ID) ================= */
 export async function GET(
   req: Request,
-  context: { params: Promise<{ id: string }> } // ✅ FIX
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: pm_id } = await context.params; // ✅ FIX
+    const { id: pm_id } = await context.params;
+    const currentUser = await getCurrentUser(); // ✅ FIX
 
     const sheets = await getSheetsClient();
 
@@ -26,7 +57,7 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({
+    const data = {
       pm_id: row[0],
       project_id: row[1] || "",
       contractor: row[2] || "",
@@ -43,20 +74,35 @@ export async function GET(
       project_engineer: row[13] || "",
       project_inspector: row[14] || "",
       resident_engineer: row[15] || "",
+    };
+
+    /* ================= AUDIT LOG ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "READ",
+      entity: "PROJECT_MASTERLIST",
+      entityId: pm_id,
+      oldValue: null,
+      newValue: null,
     });
+
+    return NextResponse.json(data);
   } catch (error) {
     console.error("GET BY ID ERROR:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
 
+/* ================= UPDATE ================= */
 export async function PUT(
   req: Request,
-  context: { params: Promise<{ id: string }> } // ✅ FIX
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: pm_id } = await context.params; // ✅ FIX
+    const { id: pm_id } = await context.params;
     const body = await req.json();
+    const currentUser = await getCurrentUser(); // ✅ FIX
 
     const sheets = await getSheetsClient();
 
@@ -76,8 +122,27 @@ export async function PUT(
       );
     }
 
-    // ⚠️ Adjust if you have header row
+    const oldRow = rows[rowIndex];
+
+    const oldData = {
+      pm_id: oldRow[0],
+      project_id: oldRow[1],
+      contractor: oldRow[2],
+      project_name: oldRow[3],
+      project_location: oldRow[4],
+      contract_id: oldRow[5],
+    };
+
     const sheetRow = rowIndex + 1;
+
+    const updatedData = {
+      pm_id,
+      project_id: body.project_id,
+      contractor: body.contractor,
+      project_name: body.project_name,
+      project_location: body.project_location,
+      contract_id: body.contract_id,
+    };
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SPREADSHEET_ID!,
@@ -107,6 +172,17 @@ export async function PUT(
       },
     });
 
+    /* ================= AUDIT LOG ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "UPDATE",
+      entity: "PROJECT_MASTERLIST",
+      entityId: pm_id,
+      oldValue: oldData,
+      newValue: updatedData,
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("PUT ERROR:", error);
@@ -114,14 +190,30 @@ export async function PUT(
   }
 }
 
+/* ================= DELETE ================= */
 export async function DELETE(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: pm_id } = await context.params;
+    const currentUser = await getCurrentUser(); // ✅ FIX
 
     const sheets = await getSheetsClient();
+
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.SPREADSHEET_ID!,
+    });
+
+    const sheet = meta.data.sheets?.find(
+      (s) => s.properties?.title === "PROJECT_MASTERLIST"
+    );
+
+    const sheetId = sheet?.properties?.sheetId;
+
+    if (sheetId === undefined) {
+      throw new Error("PROJECT_MASTERLIST sheet not found");
+    }
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
@@ -139,7 +231,15 @@ export async function DELETE(
       );
     }
 
-    // ⚠️ Adjust for header row
+    const oldRow = rows[rowIndex];
+
+    const oldData = {
+      pm_id: oldRow[0],
+      project_id: oldRow[1],
+      contractor: oldRow[2],
+      project_name: oldRow[3],
+    };
+
     const sheetRow = rowIndex + 1;
 
     await sheets.spreadsheets.batchUpdate({
@@ -149,7 +249,7 @@ export async function DELETE(
           {
             deleteDimension: {
               range: {
-                sheetId: 0, // ⚠️ IMPORTANT: replace if your sheet ID is different
+                sheetId,
                 dimension: "ROWS",
                 startIndex: sheetRow - 1,
                 endIndex: sheetRow,
@@ -158,6 +258,17 @@ export async function DELETE(
           },
         ],
       },
+    });
+
+    /* ================= AUDIT LOG ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "DELETE",
+      entity: "PROJECT_MASTERLIST",
+      entityId: pm_id,
+      oldValue: oldData,
+      newValue: null,
     });
 
     return NextResponse.json({ success: true });

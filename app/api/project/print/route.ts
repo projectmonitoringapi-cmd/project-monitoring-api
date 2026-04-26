@@ -6,6 +6,36 @@ import { PassThrough } from "stream";
 import fs from "fs";
 import path from "path";
 import { getSheetsClient } from "@/lib/googleSheets";
+import { logAudit } from "@/lib/audit";
+import { cookies } from "next/headers";
+
+/* -------------------------------------------------------
+   🔐 GET CURRENT USER FROM SESSION
+-------------------------------------------------------- */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+}
 
 /* -------------------------------------------------------
    Column Mapping
@@ -41,6 +71,8 @@ function mapRow(row: any[]) {
 -------------------------------------------------------- */
 export async function GET(req: Request) {
   try {
+    const currentUser = await getCurrentUser(); // ✅ FIXED
+
     const { searchParams } = new URL(req.url);
     const search = (searchParams.get("search") || "").toLowerCase();
 
@@ -74,6 +106,26 @@ export async function GET(req: Request) {
         )
       : data;
 
+    /* -------------------------------------------------------
+       ✅ AUDIT LOG (EXPORT PDF)
+    -------------------------------------------------------- */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "EXPORT_PDF",
+      entity: "DOCUMENT_TRACKER",
+      entityId: "REPORT",
+      oldValue: null,
+      newValue: {
+        search,
+        totalRecords: filtered.length,
+        exportedAt: new Date().toISOString(),
+      },
+    });
+
+    /* -------------------------------------------------------
+       2️⃣ Setup PDF
+    -------------------------------------------------------- */
     const fontRegular = path.join(
       process.cwd(),
       "public",
@@ -87,10 +139,6 @@ export async function GET(req: Request) {
       "fonts",
       "Roboto-Bold.ttf",
     );
-    /* -------------------------------------------------------
-       2️⃣ Setup PDF (STREAMING)
-    -------------------------------------------------------- */
-    console.log(fontRegular, fontBold);
 
     const stream = new PassThrough();
 
@@ -113,7 +161,7 @@ export async function GET(req: Request) {
     });
 
     /* -------------------------------------------------------
-       3️⃣ FONT FIX (CRITICAL - NO HELVETICA ERROR)
+       FONT CHECK
     -------------------------------------------------------- */
     if (!fs.existsSync(fontRegular)) {
       throw new Error("Roboto-Regular.ttf not found in /public/fonts");
@@ -122,8 +170,9 @@ export async function GET(req: Request) {
     doc.registerFont("Regular", fontRegular);
     doc.registerFont("Bold", fontBold);
     doc.font("Regular");
+
     /* -------------------------------------------------------
-       4️⃣ HEADER (DPWH STYLE)
+       HEADER
     -------------------------------------------------------- */
     const logoPath = path.join(process.cwd(), "public", "DPWH.png");
 
@@ -154,7 +203,7 @@ export async function GET(req: Request) {
     drawHeader();
 
     /* -------------------------------------------------------
-       5️⃣ TABLE HEADER
+       TABLE HEADER
     -------------------------------------------------------- */
     const headers = [
       "Project",
@@ -191,7 +240,7 @@ export async function GET(req: Request) {
     drawTableHeader();
 
     /* -------------------------------------------------------
-       6️⃣ ROWS (NO CUT, AUTO WRAP)
+       ROWS
     -------------------------------------------------------- */
     filtered.forEach((row, idx) => {
       const values = [
@@ -214,7 +263,6 @@ export async function GET(req: Request) {
         if (h > rowHeight) rowHeight = h;
       });
 
-      // 🔥 Page break BEFORE drawing
       if (doc.y + rowHeight > doc.page.height - 60) {
         doc.addPage();
         drawHeader();
@@ -223,7 +271,6 @@ export async function GET(req: Request) {
 
       const y = doc.y;
 
-      // Zebra striping
       if (idx % 2 === 0) {
         doc
           .rect(40, y - 2, 800, rowHeight + 4)
@@ -247,7 +294,7 @@ export async function GET(req: Request) {
     });
 
     /* -------------------------------------------------------
-       7️⃣ PAGE NUMBERS
+       PAGE NUMBERS
     -------------------------------------------------------- */
     const pageCount = doc.bufferedPageRange().count;
 
@@ -265,7 +312,7 @@ export async function GET(req: Request) {
     doc.end();
 
     /* -------------------------------------------------------
-       8️⃣ RETURN
+       RETURN
     -------------------------------------------------------- */
     return new Response(webStream, {
       headers: {

@@ -1,11 +1,41 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
-import { randomUUID } from "crypto"; // ✅ UUID generator
+import { randomUUID } from "crypto";
+import { cookies } from "next/headers";
+import { logAudit } from "@/lib/audit";
 
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+}
+
+/* ================= CREATE ================= */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const currentUser = await getCurrentUser(); // ✅ FIX
 
     const {
       projectId,
@@ -13,7 +43,6 @@ export async function POST(req: Request) {
       status,
       dateSubmitted,
       dateApproved,
-      updatedBy,
       assignPE,
       remarks,
       checklist,
@@ -32,35 +61,43 @@ export async function POST(req: Request) {
 
     const sheets = await getSheetsClient();
 
-    // ✅ normalize values (IMPORTANT)
     const cleanDateSubmitted = formatDateTime(dateSubmitted);
     const cleanDateApproved = formatDateTime(dateApproved);
 
-    const updatedRow = [
+    const newRow = [
       documentId,
       projectId || "",
       documentType || "",
       status || "",
       cleanDateSubmitted,
-      cleanDateApproved, // ✅ FIXED
-      updatedBy || "",
+      cleanDateApproved,
+      currentUser.username, // ✅ ALWAYS USE SESSION USER
       assignPE || "",
       remarks || "",
       checklistJson,
     ];
-
-    console.log("📝 CREATE PAYLOAD:", {
-      documentId,
-      status,
-      cleanDateApproved,
-    });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SPREADSHEET_ID!,
       range: "DOCUMENT_TRACKER!A:J",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [updatedRow],
+        values: [newRow],
+      },
+    });
+
+    /* ================= AUDIT LOG (CREATE) ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "CREATE",
+      entity: "DOCUMENT_TRACKER",
+      entityId: documentId,
+      oldValue: null,
+      newValue: {
+        projectId,
+        documentType,
+        status,
       },
     });
 
@@ -74,6 +111,7 @@ export async function POST(req: Request) {
   }
 }
 
+/* ================= COLUMN MAP ================= */
 const COLUMN_MAP = {
   documentId: 0,
   projectId: 1,
@@ -100,11 +138,11 @@ function mapRow(row: any[]) {
   };
 }
 
+/* ================= DATE FORMAT ================= */
 function formatDateTime(value?: string) {
   if (!value) return "";
 
   const d = new Date(value);
-
   if (isNaN(d.getTime())) return "";
 
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -115,8 +153,11 @@ function formatDateTime(value?: string) {
   );
 }
 
+/* ================= GET LIST ================= */
 export async function GET(req: Request) {
   try {
+    const currentUser = await getCurrentUser(); // ✅ FIX
+
     const { searchParams } = new URL(req.url);
 
     const search = (searchParams.get("search") || "").toLowerCase();
@@ -127,15 +168,12 @@ export async function GET(req: Request) {
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "DOCUMENT_TRACKER!A:I",
+      range: "DOCUMENT_TRACKER!A:J",
     });
 
     const rows = res.data.values || [];
-
-    // ⚠️ Skip header row if you have one
     const data = rows.slice(1).map(mapRow);
 
-    // 🔍 SEARCH (aligned with your columns)
     const filtered = search
       ? data.filter((d) =>
           [
@@ -155,7 +193,21 @@ export async function GET(req: Request) {
 
     const total = filtered.length;
 
-    // 📄 PAGINATION (50 rows)
+    /* ================= AUDIT LOG (READ LIST) ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "READ",
+      entity: "DOCUMENT_TRACKER",
+      entityId: "LIST",
+      oldValue: null,
+      newValue: {
+        search,
+        totalRecords: total,
+        page,
+      },
+    });
+
     const start = (page - 1) * pageSize;
     const paginated = filtered.slice(start, start + pageSize);
 
@@ -168,6 +220,7 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error("GET ERROR:", error);
+
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

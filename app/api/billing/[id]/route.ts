@@ -1,5 +1,28 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
+import { logAudit } from "@/lib/audit";
+import { cookies } from "next/headers";
+
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return { username: "system", name: "System" };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return { username: "system", name: "System" };
+  }
+}
 
 /* ================= GET (BY ID) ================= */
 export async function GET(
@@ -9,6 +32,7 @@ export async function GET(
   try {
     const { id } = await params;
     const billingId = id?.trim();
+    const currentUser = await getCurrentUser(); // ✅
 
     if (!billingId) {
       return NextResponse.json({ error: "Missing billingId" }, { status: 400 });
@@ -24,14 +48,14 @@ export async function GET(
     const rows = (res.data.values || []).slice(1);
 
     const match = rows.find(
-      (r) => (r[0] || "").toString().trim() === billingId, // ✅ column A
+      (r) => (r[0] || "").toString().trim() === billingId,
     );
 
     if (!match) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json({
+    const data = {
       billingId: match[0] || "",
       projectId: match[1] || "",
       billingType: match[2] || "",
@@ -41,7 +65,20 @@ export async function GET(
       status: match[6] || "",
       updatedBy: match[7] || "",
       remarks: match[8] || "",
+    };
+
+    /* ================= AUDIT ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "READ",
+      entity: "BILLING_TRACKER",
+      entityId: billingId,
+      oldValue: null,
+      newValue: null,
     });
+
+    return NextResponse.json(data);
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "GET failed" }, { status: 500 });
@@ -55,7 +92,8 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const billingId = id?.trim(); // ✅ renamed
+    const billingId = id?.trim();
+    const currentUser = await getCurrentUser(); // ✅
 
     const body = await req.json();
 
@@ -73,15 +111,24 @@ export async function PUT(
     const rows = (res.data.values || []).slice(1);
 
     const rowIndex = rows.findIndex(
-      (r) => (r[0] || "").toString().trim() === billingId, // ✅ column A
+      (r) => (r[0] || "").toString().trim() === billingId,
     );
 
     if (rowIndex === -1) {
-      console.log("❌ BILLING ID NOT FOUND:", billingId);
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
+    const oldRow = rows[rowIndex];
+
+    const oldData = {
+      billingId: oldRow[0],
+      projectId: oldRow[1],
+      billingType: oldRow[2],
+      billingCertificateNo: oldRow[3],
+      amount: oldRow[4],
+      status: oldRow[6],
+    };
 
     const updatedRow = [
       billingId,
@@ -91,9 +138,18 @@ export async function PUT(
       body.amount || "",
       body.dateSubmitted || "",
       body.status || "",
-      body.updatedBy || "",
+      currentUser.username, // ✅ always system user
       body.remarks || "",
     ];
+
+    const newData = {
+      billingId,
+      projectId: body.projectId,
+      billingType: body.billingType,
+      billingCertificateNo: body.billingCertificateNo,
+      amount: body.amount,
+      status: body.status,
+    };
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SPREADSHEET_ID!,
@@ -102,6 +158,17 @@ export async function PUT(
       requestBody: {
         values: [updatedRow],
       },
+    });
+
+    /* ================= AUDIT ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "UPDATE",
+      entity: "BILLING_TRACKER",
+      entityId: billingId,
+      oldValue: oldData,
+      newValue: newData,
     });
 
     return NextResponse.json({ success: true });
@@ -119,6 +186,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const billingId = id?.trim();
+    const currentUser = await getCurrentUser(); // ✅
 
     if (!billingId) {
       return NextResponse.json({ error: "Missing billingId" }, { status: 400 });
@@ -126,9 +194,6 @@ export async function DELETE(
 
     const sheets = await getSheetsClient();
 
-    /* =====================================================
-       1️⃣ GET SHEET ID
-    ===================================================== */
     const meta = await sheets.spreadsheets.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
     });
@@ -143,9 +208,6 @@ export async function DELETE(
       throw new Error("BILLING_TRACKER sheet not found");
     }
 
-    /* =====================================================
-       2️⃣ GET DATA
-    ===================================================== */
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
       range: "BILLING_TRACKER!A:I",
@@ -158,15 +220,21 @@ export async function DELETE(
     );
 
     if (rowIndex === -1) {
-      console.log("❌ DELETE BILLING NOT FOUND:", billingId);
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const actualRow = rowIndex + 2;
+    const oldRow = rows[rowIndex];
 
-    /* =====================================================
-       3️⃣ DELETE ROW
-    ===================================================== */
+    const oldData = {
+      billingId: oldRow[0],
+      projectId: oldRow[1],
+      billingType: oldRow[2],
+      billingCertificateNo: oldRow[3],
+      amount: oldRow[4],
+      status: oldRow[6],
+    };
+
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: process.env.SPREADSHEET_ID!,
       requestBody: {
@@ -183,6 +251,17 @@ export async function DELETE(
           },
         ],
       },
+    });
+
+    /* ================= AUDIT ================= */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "DELETE",
+      entity: "BILLING_TRACKER",
+      entityId: billingId,
+      oldValue: oldData,
+      newValue: null,
     });
 
     return NextResponse.json({ success: true });

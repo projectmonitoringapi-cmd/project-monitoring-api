@@ -7,6 +7,34 @@ import { PassThrough } from "stream";
 import fs from "fs";
 import path from "path";
 import { getSheetsClient } from "@/lib/googleSheets";
+import { logAudit } from "@/lib/audit";
+import { cookies } from "next/headers";
+
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return {
+      username: "system",
+      name: "System",
+    };
+  }
+}
 
 /* -------------------------------------------------------
    COLUMN MAP
@@ -59,6 +87,8 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const search = (searchParams.get("search") || "").toLowerCase();
 
+    const currentUser = await getCurrentUser(); // ✅ FIX
+
     /* -------------------------------------------------------
        FETCH DATA
     -------------------------------------------------------- */
@@ -93,6 +123,22 @@ export async function GET(req: Request) {
             .includes(search),
         )
       : data;
+
+    /* -------------------------------------------------------
+       ✅ AUDIT LOG (FIXED)
+    -------------------------------------------------------- */
+    await logAudit({
+      username: currentUser.username,
+      name: currentUser.name,
+      action: "EXPORT_PDF",
+      entity: "PROJECT_MASTERLIST",
+      entityId: "REPORT",
+      oldValue: null,
+      newValue: {
+        search,
+        totalRecords: filtered.length,
+      },
+    });
 
     /* -------------------------------------------------------
        PDF SETUP
@@ -191,14 +237,12 @@ export async function GET(req: Request) {
 
         doc.text(h, x, startY, {
           width: widths[i] - 6,
-          align:"center",
+          align: "center",
         });
       });
 
-      // 🔥 ADD SPACE AFTER TEXT FIRST
       doc.moveDown(0.5);
 
-      // 🔥 NOW draw line (clean separation)
       const lineY = doc.y;
 
       doc
@@ -206,7 +250,6 @@ export async function GET(req: Request) {
         .lineTo(startX + widths.reduce((a, b) => a + b, 0), lineY)
         .stroke();
 
-      // spacing before rows
       doc.moveDown(0.5);
     };
 
@@ -237,8 +280,6 @@ export async function GET(req: Request) {
       let rowHeight = 0;
 
       values.forEach((val, i) => {
-        doc.font("Regular").fontSize(13);
-
         const h = doc.heightOfString(String(val || ""), {
           width: widths[i] - 6,
         });
@@ -269,7 +310,7 @@ export async function GET(req: Request) {
           .fontSize(10)
           .text(String(val || ""), x, y, {
             width: widths[i],
-            align:"center",
+            align: "center",
           });
       });
 
@@ -277,7 +318,7 @@ export async function GET(req: Request) {
     });
 
     /* -------------------------------------------------------
-       PAGE NUMBER FIX
+       PAGE NUMBER
     -------------------------------------------------------- */
     const pageCount = doc.bufferedPageRange().count;
 
@@ -289,7 +330,7 @@ export async function GET(req: Request) {
       doc.text(`Page ${i + 1} of ${pageCount}`, 0, footerY, {
         align: "center",
         width: doc.page.width,
-        lineBreak: false, // 🔥 prevents new page
+        lineBreak: false,
       });
     }
 
