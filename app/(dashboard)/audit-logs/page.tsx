@@ -85,7 +85,6 @@ export default function AuditLogsPage() {
                 <TableHead>User</TableHead>
                 <TableHead>Action</TableHead>
                 <TableHead>Entity</TableHead>
-                <TableHead>ID</TableHead>
                 <TableHead>Changes</TableHead>
               </TableRow>
             </TableHeader>
@@ -110,7 +109,7 @@ export default function AuditLogsPage() {
                     {/* TIME */}
                     <TableCell>{formatDate(log.timestamp)}</TableCell>
 
-                    {/* USER (NAME + USERNAME) */}
+                    {/* USER */}
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="font-medium">
@@ -122,7 +121,7 @@ export default function AuditLogsPage() {
                       </div>
                     </TableCell>
 
-                    {/* ACTION (COLORED) */}
+                    {/* ACTION */}
                     <TableCell>
                       <span className={getActionStyle(log.action)}>
                         {log.action}
@@ -130,16 +129,16 @@ export default function AuditLogsPage() {
                     </TableCell>
 
                     <TableCell>{log.entity}</TableCell>
-                    <TableCell>{log.entityId}</TableCell>
 
-                    {/* JSON VIEW */}
+                    {/* HUMAN READABLE CHANGES */}
                     <TableCell>
                       <details>
                         <summary className="cursor-pointer text-blue-600">
                           View
                         </summary>
-                        <pre className="text-xs bg-gray-100 p-2 mt-2 rounded max-h-40 overflow-auto">
-{formatJSON(log.oldValue, log.newValue)}
+
+                        <pre className="text-xs bg-gray-100 p-3 mt-2 rounded max-h-40 overflow-auto whitespace-pre-wrap">
+                          {formatJSON(log.oldValue, log.newValue)}
                         </pre>
                       </details>
                     </TableCell>
@@ -192,19 +191,56 @@ const formatDate = (value: any) => {
   return d.toLocaleString("en-US");
 };
 
+/* 🔥 HUMAN READABLE JSON */
 const formatJSON = (oldVal: string, newVal: string) => {
   try {
-    const oldObj = oldVal ? JSON.parse(oldVal) : null;
-    const newObj = newVal ? JSON.parse(newVal) : null;
+    const oldObj = oldVal ? JSON.parse(oldVal) : {};
+    const newObj = newVal ? JSON.parse(newVal) : {};
 
-    return JSON.stringify(
-      { old: oldObj, new: newObj },
-      null,
-      2
-    );
+    const allKeys = new Set([
+      ...Object.keys(oldObj || {}),
+      ...Object.keys(newObj || {}),
+    ]);
+
+    const changes: string[] = [];
+
+    allKeys.forEach((key) => {
+      const oldValue = oldObj?.[key];
+      const newValue = newObj?.[key];
+
+      if (oldValue === newValue) return;
+
+      const label = formatKey(key);
+
+      if (oldValue === undefined) {
+        changes.push(`➕ ${label}: ${formatValue(newValue)}`);
+      } else if (newValue === undefined) {
+        changes.push(`❌ ${label}: ${formatValue(oldValue)}`);
+      } else {
+        changes.push(
+          `✏️ ${label}: ${formatValue(oldValue)} → ${formatValue(newValue)}`
+        );
+      }
+    });
+
+    return changes.length ? changes.join("\n") : "No changes";
   } catch {
-    return "Invalid JSON";
+    return "Invalid data";
   }
+};
+
+const formatKey = (key: string) => {
+  return key
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ")
+    .replace(/^./, (str) => str.toUpperCase());
+};
+
+const formatValue = (val: any) => {
+  if (val === null || val === undefined) return "—";
+  if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
 };
 
 /* ================= ACTION STYLES ================= */
