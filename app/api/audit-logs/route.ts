@@ -7,11 +7,12 @@ const COLUMN_MAP = {
   id: 0,
   timestamp: 1,
   username: 2,
-  action: 3,
-  entity: 4,
-  entityId: 5,
-  oldValue: 6,
-  newValue: 7,
+  name: 3, // ✅ add this
+  action: 4, // ✅ corrected
+  entity: 5,
+  entityId: 6,
+  oldValue: 7,
+  newValue: 8,
 };
 
 /* ================= MAP ROW ================= */
@@ -22,7 +23,10 @@ function mapRow(row: any[], userMap: Record<string, string>) {
     id: row[COLUMN_MAP.id] || "",
     timestamp: row[COLUMN_MAP.timestamp] || "",
     username,
-    name: userMap[username] || username, // ✅ THIS IS THE FIX
+    name:
+      (row[COLUMN_MAP.name] || "").toString().trim() ||
+      userMap[username] ||
+      username,
     action: row[COLUMN_MAP.action] || "",
     entity: row[COLUMN_MAP.entity] || "",
     entityId: row[COLUMN_MAP.entityId] || "",
@@ -53,8 +57,8 @@ export async function GET(req: Request) {
     const userMap: Record<string, string> = {};
 
     userRows.forEach((r) => {
-      const name = (r[1] || "").toString().trim();      // B: Name
-      const username = (r[2] || "").toString().trim();  // C: Username
+      const name = (r[1] || "").toString().trim(); // B: Name
+      const username = (r[2] || "").toString().trim(); // C: Username
 
       if (username) {
         userMap[username] = name || username;
@@ -66,7 +70,7 @@ export async function GET(req: Request) {
     /* ================= AUDIT LOGS ================= */
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "AUDITLOGS!A:H",
+      range: "AUDITLOGS!A:I",
     });
 
     const rows = res.data.values || [];
@@ -78,16 +82,10 @@ export async function GET(req: Request) {
     /* ================= SEARCH ================= */
     const filtered = search
       ? data.filter((d) =>
-          [
-            d.name,
-            d.username,
-            d.action,
-            d.entity,
-            d.entityId,
-          ]
+          [d.name, d.username, d.action, d.entity, d.entityId]
             .join(" ")
             .toLowerCase()
-            .includes(search)
+            .includes(search),
         )
       : data;
 

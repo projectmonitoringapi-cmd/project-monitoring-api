@@ -1,23 +1,63 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
 import bcrypt from "bcrypt";
 import { randomUUID } from "crypto";
-import { logAudit } from "@/lib/audit"; // ✅ ADDED
+import { cookies } from "next/headers";
+import { logAudit } from "@/lib/audit";
+
+/* ================= GET CURRENT USER ================= */
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("session");
+
+  if (!session) {
+    return { username: "system", name: "System" };
+  }
+
+  try {
+    const user = JSON.parse(session.value);
+    return {
+      username: user.username || "system",
+      name: user.name || user.username || "System",
+    };
+  } catch {
+    return { username: "system", name: "System" };
+  }
+}
+
+function normalize(value: any) {
+  return (value || "").toString().toLowerCase().trim();
+}
 
 /* ================= CREATE USER ================= */
 export async function POST(req: Request) {
   try {
-    const { name, username, password, role, isActive, updatedBy } =
-      await req.json();
+    const body = await req.json();
+    const currentUser = await getCurrentUser();
 
+    const {
+      name,
+      username,
+      password,
+      role,
+      isActive,
+    } = body;
+
+    /* ===== VALIDATION ===== */
     if (!name || !username || !password) {
       await logAudit({
-        username: updatedBy || "system",
+        username: currentUser.username,
+        name: currentUser.name,
         action: "CREATE_FAILED",
         entity: "USER",
         entityId: "",
         oldValue: null,
-        newValue: { reason: "Missing required fields" },
+        newValue: {
+          reason: "Missing required fields",
+          name,
+          username,
+        },
       });
 
       return NextResponse.json(
@@ -35,21 +75,23 @@ export async function POST(req: Request) {
 
     const rows = res.data.values || [];
 
-    /* ================= DUPLICATE CHECK ================= */
+    /* ===== DUPLICATE CHECK ===== */
     const exists = rows.some(
-      (r) =>
-        (r[2] || "").toString().toLowerCase().trim() ===
-        username.toLowerCase().trim()
+      (r) => normalize(r[2]) === normalize(username)
     );
 
     if (exists) {
       await logAudit({
-        username: updatedBy || "system",
+        username: currentUser.username,
+        name: currentUser.name,
         action: "CREATE_FAILED",
         entity: "USER",
         entityId: "",
         oldValue: null,
-        newValue: { reason: "Username already exists", username },
+        newValue: {
+          reason: "Username already exists",
+          username,
+        },
       });
 
       return NextResponse.json(
@@ -58,8 +100,8 @@ export async function POST(req: Request) {
       );
     }
 
+    /* ===== CREATE ===== */
     const hash = await bcrypt.hash(password, 10);
-
     const newId = randomUUID();
 
     const newRow = [
@@ -79,9 +121,10 @@ export async function POST(req: Request) {
       requestBody: { values: [newRow] },
     });
 
-    /* ================= AUDIT LOG (CREATE SUCCESS) ================= */
+    /* ===== AUDIT SUCCESS ===== */
     await logAudit({
-      username: updatedBy || "system",
+      username: currentUser.username,
+      name: currentUser.name,
       action: "CREATE",
       entity: "USER",
       entityId: newId,
@@ -100,11 +143,14 @@ export async function POST(req: Request) {
 
     await logAudit({
       username: "system",
+      name: "System",
       action: "CREATE_ERROR",
       entity: "USER",
       entityId: "",
       oldValue: null,
-      newValue: { error: "Server error" },
+      newValue: {
+        error: "Server error",
+      },
     });
 
     return NextResponse.json({ error: "Server error" }, { status: 500 });
@@ -114,9 +160,11 @@ export async function POST(req: Request) {
 /* ================= GET USERS ================= */
 export async function GET(req: Request) {
   try {
+    const currentUser = await getCurrentUser();
+
     const { searchParams } = new URL(req.url);
 
-    const search = (searchParams.get("search") || "").toLowerCase();
+    const search = normalize(searchParams.get("search"));
     const page = Number(searchParams.get("page") || 1);
     const pageSize = 20;
 
@@ -134,11 +182,11 @@ export async function GET(req: Request) {
       name: r[1] || "",
       username: r[2] || "",
       role: r[4] || "user",
-      isActive: (r[5] || "").toString().toUpperCase() === "TRUE",
+      isActive: normalize(r[5]) === "true",
       createdAt: r[6] || "",
     }));
 
-    /* ================= SEARCH ================= */
+    /* ===== SEARCH ===== */
     const filtered = search
       ? data.filter((u) =>
           `${u.name} ${u.username} ${u.role}`
@@ -149,9 +197,10 @@ export async function GET(req: Request) {
 
     const total = filtered.length;
 
-    /* ================= AUDIT LOG (READ LIST) ================= */
+    /* ===== AUDIT READ ===== */
     await logAudit({
-      username: "system", // 🔥 replace with real user later
+      username: currentUser.username,
+      name: currentUser.name,
       action: "READ",
       entity: "USER",
       entityId: "LIST",
@@ -163,7 +212,7 @@ export async function GET(req: Request) {
       },
     });
 
-    /* ================= PAGINATION ================= */
+    /* ===== PAGINATION ===== */
     const start = (page - 1) * pageSize;
     const paginated = filtered.slice(start, start + pageSize);
 
@@ -179,11 +228,14 @@ export async function GET(req: Request) {
 
     await logAudit({
       username: "system",
+      name: "System",
       action: "READ_ERROR",
       entity: "USER",
       entityId: "LIST",
       oldValue: null,
-      newValue: { error: "Server error" },
+      newValue: {
+        error: "Server error",
+      },
     });
 
     return NextResponse.json({ error: "Server error" }, { status: 500 });

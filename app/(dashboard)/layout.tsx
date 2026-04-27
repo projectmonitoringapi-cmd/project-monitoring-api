@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -52,10 +53,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const [collapsed, setCollapsed] = useState(false);
 
-  const session = useMemo(() => getSession(), []);
+  /* ✅ Lazy init → NO useEffect, NO warning */
+  const [session] = useState<any>(() => getSession());
 
-  const role = (session?.role || "user").toLowerCase().trim();
-  const name = session?.name || "User";
+  /* ✅ Prevent hydration mismatch */
+  if (!session) return null;
+
+  const role = (session.role || "user").toLowerCase().trim();
+  const name = session.name || "User";
 
   /* ================= FILTER MENU ================= */
   const filteredMenu = menu.filter((item) => {
@@ -161,7 +166,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             onClick={handleLogout}
             className={cn(
               "w-full flex items-center rounded-lg text-sm transition text-red-600 hover:bg-red-50",
-              collapsed ? "justify-center py-3" : "gap-3 px-3 py-2"
+              collapsed
+                ? "justify-center py-3"
+                : "gap-3 px-3 py-2"
             )}
           >
             <LogOut className="h-5 w-5" />

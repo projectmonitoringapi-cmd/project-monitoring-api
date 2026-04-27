@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
@@ -14,12 +15,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 
-import {
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-} from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 export default function AuditLogsPage() {
   const [data, setData] = useState<any[]>([]);
@@ -32,10 +28,14 @@ export default function AuditLogsPage() {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/audit-logs?search=${encodeURIComponent(search)}&page=${page}`
+        `/api/audit-logs?search=${encodeURIComponent(search)}&page=${page}`,
       );
 
       const json = await res.json();
+
+      console.log("TARGET ROW:", json.data?.[2]);
+      console.log("RAW newValue:", json.data?.[2]?.newValue);
+      console.log("TYPE of newValue:", typeof json.data?.[2]?.newValue);
 
       setData(json.data || []);
       setTotalPages(json.totalPages || 1);
@@ -53,13 +53,10 @@ export default function AuditLogsPage() {
   return (
     <div className="p-6 bg-white min-h-screen">
       <div className="max-w-[1200px] mx-auto space-y-6">
-
         {/* HEADER */}
         <div className="border-b pb-4">
           <h1 className="text-xl font-semibold">Audit Logs</h1>
-          <p className="text-sm text-gray-500">
-            System activity tracking
-          </p>
+          <p className="text-sm text-gray-500">System activity tracking</p>
         </div>
 
         {/* SEARCH */}
@@ -105,7 +102,6 @@ export default function AuditLogsPage() {
               ) : (
                 data.map((log) => (
                   <TableRow key={log.id} className="hover:bg-gray-50">
-
                     {/* TIME */}
                     <TableCell>{formatDate(log.timestamp)}</TableCell>
 
@@ -138,11 +134,10 @@ export default function AuditLogsPage() {
                         </summary>
 
                         <pre className="text-xs bg-gray-100 p-3 mt-2 rounded max-h-40 overflow-auto whitespace-pre-wrap">
-                          {formatJSON(log.oldValue, log.newValue)}
+                          {formatJSON(log.oldValue, log.newValue, log.action)}
                         </pre>
                       </details>
                     </TableCell>
-
                   </TableRow>
                 ))
               )}
@@ -176,7 +171,6 @@ export default function AuditLogsPage() {
             <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         </div>
-
       </div>
     </div>
   );
@@ -192,41 +186,149 @@ const formatDate = (value: any) => {
 };
 
 /* 🔥 HUMAN READABLE JSON */
-const formatJSON = (oldVal: string, newVal: string) => {
-  try {
-    const oldObj = oldVal ? JSON.parse(oldVal) : {};
-    const newObj = newVal ? JSON.parse(newVal) : {};
+const safeParse = (val: any) => {
+  if (!val) return {};
 
-    const allKeys = new Set([
-      ...Object.keys(oldObj || {}),
-      ...Object.keys(newObj || {}),
-    ]);
+  // already object
+  if (typeof val === "object") return val;
 
-    const changes: string[] = [];
+  if (typeof val === "string") {
+    const str = val.trim();
 
-    allKeys.forEach((key) => {
-      const oldValue = oldObj?.[key];
-      const newValue = newObj?.[key];
+    if (!str) return {};
 
-      if (oldValue === newValue) return;
-
-      const label = formatKey(key);
-
-      if (oldValue === undefined) {
-        changes.push(`➕ ${label}: ${formatValue(newValue)}`);
-      } else if (newValue === undefined) {
-        changes.push(`❌ ${label}: ${formatValue(oldValue)}`);
-      } else {
-        changes.push(
-          `✏️ ${label}: ${formatValue(oldValue)} → ${formatValue(newValue)}`
-        );
+    try {
+      return JSON.parse(str);
+    } catch {
+      try {
+        // 🔥 handle double-encoded JSON (common in Sheets)
+        return JSON.parse(JSON.parse(str));
+      } catch {
+        console.warn("Failed to parse JSON:", str);
+        return {};
       }
-    });
-
-    return changes.length ? changes.join("\n") : "No changes";
-  } catch {
-    return "Invalid data";
+    }
   }
+
+  return {};
+};
+
+const formatJSON = (oldVal: any, newVal: any, action: string) => {
+  const oldObj = safeParse(oldVal);
+  const newObj = safeParse(newVal);
+
+  /* ================= CREATE ================= */
+  if (action === "CREATE") {
+    if (!newObj || Object.keys(newObj).length === 0) {
+      return "⚠️ No data recorded for CREATE";
+    }
+    return formatFullObject(newObj, "Created Data");
+  }
+
+  /* ================= DELETE ================= */
+  if (action === "DELETE") {
+    return formatFullObject(oldObj, "Deleted Data");
+  }
+
+  /* ================= UPDATE ================= */
+  if (action === "UPDATE") {
+    // 🔥 HANDLE EMPTY NEW VALUE (your current issue)
+    if (!newObj || Object.keys(newObj).length === 0) {
+      return [
+        "⚠️ Update detected but no new data recorded",
+        "",
+        "📌 Previous Data",
+        ...formatObjectLines(oldObj),
+      ].join("\n");
+    }
+
+    return formatDiff(oldObj, newObj);
+  }
+
+  /* ================= READ ================= */
+  if (action === "READ") {
+    return formatFullObject(newObj, "Query Details");
+  }
+
+  return "No data";
+};
+
+const formatFullObject = (obj: any, title: string) => {
+  const entries = Object.entries(obj || {});
+
+  if (entries.length === 0) return "No data";
+
+  return [
+    `📌 ${title}`,
+    ...entries.map(
+      ([key, value]) => `${formatKey(key)}: ${formatValue(value)}`,
+    ),
+  ].join("\n");
+};
+
+const formatDiff = (oldObj: any, newObj: any) => {
+  const allKeys = new Set([...Object.keys(oldObj), ...Object.keys(newObj)]);
+
+  const changes: string[] = [];
+  const before: string[] = [];
+  const after: string[] = [];
+
+  allKeys.forEach((key) => {
+    const oldValue = oldObj[key];
+    const newValue = newObj[key];
+
+    const label = formatKey(key);
+
+    // skip unchanged
+    if (oldValue === newValue) return;
+
+    // track diff
+    if (oldValue === undefined) {
+      changes.push(`➕ ${label}: ${formatValue(newValue)}`);
+    } else if (newValue === undefined) {
+      changes.push(`❌ ${label}: ${formatValue(oldValue)}`);
+    } else {
+      changes.push(
+        `✏️ ${label}: ${formatValue(oldValue)} → ${formatValue(newValue)}`,
+      );
+    }
+
+    // build before/after view
+    if (oldValue !== undefined) {
+      before.push(`${label}: ${formatValue(oldValue)}`);
+    }
+
+    if (newValue !== undefined) {
+      after.push(`${label}: ${formatValue(newValue)}`);
+    }
+  });
+
+  // 🔥 If everything looks deleted → backend issue fallback
+  if (Object.keys(newObj).length === 0 && Object.keys(oldObj).length > 0) {
+    return [
+      "⚠️ Incomplete update data (backend issue)",
+      "",
+      "📌 Previous Data",
+      ...formatObjectLines(oldObj),
+    ].join("\n");
+  }
+
+  return [
+    "📊 Changes",
+    ...changes,
+    "",
+    "📌 Before",
+    ...before,
+    "",
+    "📌 After",
+    ...after,
+  ].join("\n");
+};
+
+const formatObjectLines = (obj: any) => {
+  return Object.entries(obj || {}).map(
+    ([key, value]) => `${formatKey(key)}: ${formatValue(value)}`,
+  );
 };
 
 const formatKey = (key: string) => {

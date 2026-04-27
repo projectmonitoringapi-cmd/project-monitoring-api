@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
 import bcrypt from "bcrypt";
-import { logAudit } from "@/lib/audit"; // ✅ ADDED
-import { getCurrentUser } from "@/lib/auth"; // ✅ OPTIONAL (better than "system")
+import { logAudit } from "@/lib/audit";
+import { getCurrentUser } from "@/lib/auth";
 
 /* ================= UPDATE ================= */
 export async function PUT(
@@ -19,12 +19,17 @@ export async function PUT(
 
     if (!name || !username) {
       await logAudit({
-        username: currentUser?.username || "system",
+        username: currentUser.username,
+        name: currentUser.name,
         action: "UPDATE_FAILED",
         entity: "USER",
         entityId: id,
         oldValue: null,
-        newValue: { reason: "Missing required fields" },
+        newValue: {
+          reason: "Missing required fields",
+          name,
+          username,
+        },
       });
 
       return NextResponse.json(
@@ -46,12 +51,15 @@ export async function PUT(
 
     if (rowIndex === -1) {
       await logAudit({
-        username: currentUser?.username || "system",
+        username: currentUser.username,
+        name: currentUser.name,
         action: "UPDATE_FAILED",
         entity: "USER",
         entityId: id,
         oldValue: null,
-        newValue: { reason: "User not found" },
+        newValue: {
+          reason: "User not found",
+        },
       });
 
       return NextResponse.json(
@@ -60,7 +68,7 @@ export async function PUT(
       );
     }
 
-    /* ================= DUPLICATE CHECK ================= */
+    /* ===== DUPLICATE CHECK ===== */
     const duplicate = rows.some(
       (r, i) =>
         i !== rowIndex &&
@@ -70,12 +78,16 @@ export async function PUT(
 
     if (duplicate) {
       await logAudit({
-        username: currentUser?.username || "system",
+        username: currentUser.username,
+        name: currentUser.name,
         action: "UPDATE_FAILED",
         entity: "USER",
         entityId: id,
         oldValue: null,
-        newValue: { reason: "Duplicate username", username },
+        newValue: {
+          reason: "Duplicate username",
+          username,
+        },
       });
 
       return NextResponse.json(
@@ -86,7 +98,7 @@ export async function PUT(
 
     const existing = rows[rowIndex];
 
-    /* ================= CAPTURE OLD DATA ================= */
+    /* ===== OLD DATA ===== */
     const oldData = {
       name: existing[1],
       username: existing[2],
@@ -94,9 +106,8 @@ export async function PUT(
       isActive: existing[5],
     };
 
-    /* ================= PASSWORD ================= */
+    /* ===== PASSWORD ===== */
     let passwordHash = existing[3];
-
     if (password) {
       passwordHash = await bcrypt.hash(password, 10);
     }
@@ -120,9 +131,10 @@ export async function PUT(
       requestBody: { values: [updatedRow] },
     });
 
-    /* ================= AUDIT LOG (SUCCESS) ================= */
+    /* ===== AUDIT SUCCESS ===== */
     await logAudit({
-      username: currentUser?.username || "system",
+      username: currentUser.username,
+      name: currentUser.name,
       action: "UPDATE",
       entity: "USER",
       entityId: id,
@@ -141,11 +153,14 @@ export async function PUT(
 
     await logAudit({
       username: "system",
+      name: "System",
       action: "UPDATE_ERROR",
       entity: "USER",
       entityId: "",
       oldValue: null,
-      newValue: { error: "Server error" },
+      newValue: {
+        error: "Server error",
+      },
     });
 
     return NextResponse.json(
@@ -178,12 +193,15 @@ export async function DELETE(
 
     if (rowIndex === -1) {
       await logAudit({
-        username: currentUser?.username || "system",
+        username: currentUser.username,
+        name: currentUser.name,
         action: "DELETE_FAILED",
         entity: "USER",
         entityId: id,
         oldValue: null,
-        newValue: { reason: "User not found" },
+        newValue: {
+          reason: "User not found",
+        },
       });
 
       return NextResponse.json(
@@ -195,7 +213,6 @@ export async function DELETE(
     const existing = rows[rowIndex];
     const actualRow = rowIndex + 2;
 
-    /* ================= OLD DATA ================= */
     const oldData = {
       name: existing[1],
       username: existing[2],
@@ -220,9 +237,10 @@ export async function DELETE(
       requestBody: { values: [updatedRow] },
     });
 
-    /* ================= AUDIT LOG ================= */
+    /* ===== AUDIT DELETE ===== */
     await logAudit({
-      username: currentUser?.username || "system",
+      username: currentUser.username,
+      name: currentUser.name,
       action: "DELETE",
       entity: "USER",
       entityId: id,
@@ -239,11 +257,14 @@ export async function DELETE(
 
     await logAudit({
       username: "system",
+      name: "System",
       action: "DELETE_ERROR",
       entity: "USER",
       entityId: "",
       oldValue: null,
-      newValue: { error: "Server error" },
+      newValue: {
+        error: "Server error",
+      },
     });
 
     return NextResponse.json(

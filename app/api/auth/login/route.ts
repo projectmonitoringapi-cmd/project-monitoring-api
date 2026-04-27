@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
 import bcrypt from "bcrypt";
