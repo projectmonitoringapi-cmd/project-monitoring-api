@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import { getSheetsClient } from "@/lib/googleSheets";
 import { logAudit } from "@/lib/audit";
 import { cookies } from "next/headers";
+import { computeProcess } from "@/lib/sla/computeProcess";
 
 /* ================= GET CURRENT USER ================= */
 async function getCurrentUser() {
@@ -29,6 +31,51 @@ async function getCurrentUser() {
   }
 }
 
+async function loadOfficeHours(sheets: any) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID!,
+    range: "OFFICE_HOURS!A:E",
+  });
+
+  const rows = res.data.values || [];
+
+  return rows.slice(1).map((r: any[]) => ({
+    day: r[1],
+    timeIn: r[2],
+    timeOut: r[3],
+    isWorkingDay: r[4] === "TRUE",
+  }));
+}
+
+async function loadHolidays(sheets: any) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID!,
+    range: "HOLIDAYS!A:G",
+  });
+
+  const rows = res.data.values || [];
+
+  return rows.slice(1).map((r: any[]) => ({
+    date: r[1],
+    isWorkingDay: r[6] === "TRUE",
+  }));
+}
+
+async function loadProcessRules(sheets: any) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SPREADSHEET_ID!,
+    range: "PROCESS_TIME!A:D",
+  });
+
+  const rows = res.data.values || [];
+
+  return rows.slice(1).map((r: any[]) => ({
+    transaction: r[1],
+    prescribeDays: Number(r[2] || 0),
+    hours: Number(r[3] || 0),
+  }));
+}
+
 /* ================= GET (BY ID) ================= */
 export async function GET(
   req: Request,
@@ -42,7 +89,7 @@ export async function GET(
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "DOCUMENT_TRACKER!A:J",
+      range: "DOCUMENT_TRACKER!A:L",
     });
 
     const rows = (res.data.values || []).slice(1);
@@ -71,10 +118,12 @@ export async function GET(
       status: match[3],
       dateSubmitted: match[4],
       dateApproved: match[5],
-      updatedBy: match[6],
-      assignPE: match[7],
-      remarks: match[8],
-      checklistJson: match[9] || "",
+      processTime: match[6],
+      processStatus: match[7],
+      updatedBy: match[8],
+      assignPE: match[9],
+      remarks: match[10],
+      checklistJson: match[11] || "",
     });
   } catch (err) {
     console.error(err);
@@ -96,7 +145,7 @@ export async function PUT(
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "DOCUMENT_TRACKER!A:J",
+      range: "DOCUMENT_TRACKER!A:L",
     });
 
     const rows = (res.data.values || []).slice(1);
@@ -122,30 +171,59 @@ export async function PUT(
       remarks: oldRow[8],
     };
 
+    const dateSubmitted = body.dateSubmitted
+      ? formatDateTime(body.dateSubmitted)
+      : oldRow[4];
+
+    const dateApproved = body.dateApproved
+      ? formatDateTime(body.dateApproved)
+      : oldRow[5];
+
+    const documentType = body.documentType ?? oldRow[2];
+
+    const officeHours = await loadOfficeHours(sheets);
+    const holidays = await loadHolidays(sheets);
+    const rules = await loadProcessRules(sheets);
+
+    const rule = rules.find((r: any) => r.transaction === documentType)
+
+    const { processTime, processStatus } = computeProcess({
+      dateSubmitted,
+      dateApproved,
+      officeHours,
+      holidays,
+      processRule: rule,
+    });
+
     const checklistJson = body.checklist
       ? JSON.stringify(body.checklist)
       : oldRow[9];
 
     const updatedRow = [
-      id,
-      body.projectId ?? oldRow[1],
-      body.documentType ?? oldRow[2],
-      body.status ?? oldRow[3],
+      id, // A
+      body.projectId ?? oldRow[1], // B
+      documentType, // C
+      body.status ?? oldRow[3], // D
 
-      body.dateSubmitted ? formatDateTime(body.dateSubmitted) : oldRow[4],
+      dateSubmitted, // E
+      dateApproved, // F
 
-      body.dateApproved ? formatDateTime(body.dateApproved) : oldRow[5],
+      processTime, // G ✅
+      processStatus, // H ✅
 
-      currentUser.username, // ✅ ALWAYS TRACK WHO UPDATED
-      body.assignPE ?? oldRow[7],
-      body.remarks ?? oldRow[8],
+      currentUser.username, // I ✅ moved
 
-      checklistJson,
+      body.assignPE ?? oldRow[9], // J
+      body.remarks ?? oldRow[10], // K
+
+      checklistJson, // L
     ];
 
+    console.log("Process Time:",processTime);
+    console.log("Process Status:",processStatus);
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: `DOCUMENT_TRACKER!A${actualRow}:J${actualRow}`,
+      range: `DOCUMENT_TRACKER!A${actualRow}:L${actualRow}`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
         values: [updatedRow],

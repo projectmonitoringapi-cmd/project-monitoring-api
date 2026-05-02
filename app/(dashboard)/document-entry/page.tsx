@@ -60,6 +60,7 @@ export default function MonitoringPage() {
       );
 
       const json = await res.json();
+      console.log("🔥 FETCH TRIGGERED");
 
       setData(json.data || []);
       setTotalPages(json.totalPages || 1);
@@ -156,6 +157,8 @@ export default function MonitoringPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Date Submitted</TableHead>
                 <TableHead>Date Approved</TableHead>
+                <TableHead>Process Time</TableHead>
+                <TableHead>Process Status</TableHead>
                 <TableHead>Updated By</TableHead>
                 <TableHead>Assign PE</TableHead>
                 <TableHead>Remarks</TableHead>
@@ -213,6 +216,23 @@ export default function MonitoringPage() {
                     </TableCell>
                     <TableCell>
                       {formatDisplayDateTime(row.dateApproved)}
+                    </TableCell>
+                    <TableCell>{formatProcessTime(row.processTime)}</TableCell>
+
+                    <TableCell>
+                      <span
+                        className={`px-2 py-1 rounded-md text-xs font-medium ${
+                          row.processStatus === "COMPLETED"
+                            ? "bg-green-50 text-green-700"
+                            : row.processStatus === "OVERDUE"
+                              ? "bg-red-50 text-red-700"
+                              : row.processStatus === "PENDING"
+                                ? "bg-yellow-50 text-yellow-700"
+                                : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {row.processStatus || "—"}
+                      </span>
                     </TableCell>
                     <TableCell>{row.updatedBy || "—"}</TableCell>
                     <TableCell>{row.assignPE || "—"}</TableCell>
@@ -458,4 +478,15 @@ function formatDisplayDateTime(value?: string) {
     minute: "2-digit",
     hour12: true, // ✅ AM/PM
   });
+}
+
+function formatProcessTime(value?: number) {
+  if (value === undefined || value === null) return "—";
+
+  const totalMinutes = Math.round(value * 60);
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
 }

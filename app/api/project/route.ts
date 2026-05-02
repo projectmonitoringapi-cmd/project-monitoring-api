@@ -71,6 +71,8 @@ export async function POST(req: Request) {
       status || "",
       cleanDateSubmitted,
       cleanDateApproved,
+      "", // ✅ ProcessTime (computed later)
+      "", // ✅ ProcessStatus (computed later)
       currentUser.username, // ✅ ALWAYS USE SESSION USER
       assignPE || "",
       remarks || "",
@@ -79,7 +81,7 @@ export async function POST(req: Request) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "DOCUMENT_TRACKER!A:J",
+      range: "DOCUMENT_TRACKER!A:L",
       valueInputOption: "USER_ENTERED",
       requestBody: {
         values: [newRow],
@@ -119,9 +121,11 @@ const COLUMN_MAP = {
   status: 3,
   dateSubmitted: 4,
   dateApproved: 5,
-  updatedBy: 6,
-  assignPE: 7,
-  remarks: 8,
+  processTime: 6,
+  processStatus:7,
+  updatedBy: 8,
+  assignPE: 9,
+  remarks: 10,
 };
 
 function mapRow(row: any[]) {
@@ -132,6 +136,8 @@ function mapRow(row: any[]) {
     status: row[COLUMN_MAP.status] || "",
     dateSubmitted: row[COLUMN_MAP.dateSubmitted] || "",
     dateApproved: row[COLUMN_MAP.dateApproved] || "",
+    processTime: row[COLUMN_MAP.processTime] || "",
+    processStatus: row[COLUMN_MAP.processStatus] || "",
     updatedBy: row[COLUMN_MAP.updatedBy] || "",
     assignPE: row[COLUMN_MAP.assignPE] || "",
     remarks: row[COLUMN_MAP.remarks] || "",
@@ -168,7 +174,7 @@ export async function GET(req: Request) {
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID!,
-      range: "DOCUMENT_TRACKER!A:J",
+      range: "DOCUMENT_TRACKER!A:L",
     });
 
     const rows = res.data.values || [];
@@ -181,6 +187,8 @@ export async function GET(req: Request) {
             d.projectId,
             d.documentType,
             d.status,
+            d.processTime,
+            d.processStatus,
             d.updatedBy,
             d.assignPE,
             d.remarks,

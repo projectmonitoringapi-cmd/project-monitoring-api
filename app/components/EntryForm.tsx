@@ -100,6 +100,9 @@ export default function EntryForm({
     (t) => t.toLowerCase().trim() === normalizedType,
   );
 
+  const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
   type Project = {
     projectId: string;
     projectName: string;
@@ -513,7 +516,9 @@ export default function EntryForm({
         },
       );
 
-      await generatePDF(checklist);
+      generatePDF(checklist);
+
+      await sleep(3000); // try 500–1000ms
 
       router.push("/document-entry");
     } catch (err: any) {
@@ -857,3 +862,5 @@ function InfoItem({
     </div>
   );
 }
+
+

@@ -1,5 +1,5 @@
 import "./globals.css";
-import { Toaster } from "sonner";
+import ClientToaster from "@/app/components/ClientToaster";
 
 export default function RootLayout({
   children,
@@ -11,12 +11,8 @@ export default function RootLayout({
       <body>
         {children}
 
-        {/* ✅ REQUIRED FOR TOAST */}
-        <Toaster
-          position="top-center"
-          richColors
-          closeButton
-        />
+        {/* ✅ Client-only toaster */}
+        <ClientToaster />
       </body>
     </html>
   );

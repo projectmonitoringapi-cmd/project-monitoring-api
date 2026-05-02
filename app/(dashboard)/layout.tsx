@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -14,6 +14,9 @@ import {
   Logs,
   User,
   LogOut,
+  Clock,
+  Calendar,
+  List,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -24,6 +27,9 @@ const menu = [
   { label: "Masterlist", icon: SquareChartGantt, path: "/masterlist" },
   { label: "Document Tracking", icon: File, path: "/document-entry" },
   { label: "Billing Tracking", icon: ReceiptText, path: "/billing" },
+  { label: "Process Time", icon: List, path: "/process-time" },
+  { label: "Office Hours", icon: Clock, path: "/office-hours" },
+  { label: "Holidays", icon: Calendar, path: "/holidays" },
   { label: "Audit Logs", icon: Logs, path: "/audit-logs", adminOnly: true },
   { label: "Users", icon: User, path: "/users", adminOnly: true },
 ];
@@ -40,7 +46,6 @@ function getSession() {
     if (!cookie) return null;
 
     const value = decodeURIComponent(cookie.split("=")[1]);
-
     return JSON.parse(value);
   } catch {
     return null;
@@ -53,20 +58,30 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const [collapsed, setCollapsed] = useState(false);
 
-  /* ✅ Lazy init → NO useEffect, NO warning */
-  const [session] = useState<any>(() => getSession());
+  /* ✅ Clean session handling (no hydration issue, no warning) */
+  const [session] = useState<any>(() => {
+    if (typeof document === "undefined") return null;
+    return getSession();
+  });
 
-  /* ✅ Prevent hydration mismatch */
-  if (!session) return null;
+
+  /* ✅ Safe render guard */
+  if (!session) {
+    return (
+      <div className="h-screen flex items-center justify-center text-gray-500">
+        Loading...
+      </div>
+    );
+  }
 
   const role = (session.role || "user").toLowerCase().trim();
   const name = session.name || "User";
 
   /* ================= FILTER MENU ================= */
-  const filteredMenu = menu.filter((item) => {
-    if (item.adminOnly && role !== "admin") return false;
-    return true;
-  });
+  const filteredMenu =
+    role === "admin"
+      ? menu.filter((item) => !item.adminOnly || role === "admin")
+      : menu.filter((item) => !item.adminOnly).slice(0, 4);
 
   /* ================= LOGOUT ================= */
   const handleLogout = async () => {
@@ -91,7 +106,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <aside
         className={cn(
           "bg-white border-r flex flex-col transition-all duration-300",
-          collapsed ? "w-16" : "w-64"
+          collapsed ? "w-16" : "w-64",
         )}
       >
         {/* HEADER */}
@@ -104,12 +119,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 className="h-10 w-10 object-contain"
               />
               <div className="leading-tight">
-                <div className="text-sm font-semibold text-gray-900">
-                  DPWH
-                </div>
-                <div className="text-xs text-gray-500">
-                  Project Monitoring
-                </div>
+                <div className="text-sm font-semibold text-gray-900">DPWH</div>
+                <div className="text-xs text-gray-500">Project Monitoring</div>
               </div>
             </div>
           )}
@@ -138,12 +149,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 onClick={() => router.push(item.path)}
                 className={cn(
                   "w-full flex items-center rounded-lg text-sm transition",
-                  collapsed
-                    ? "justify-center py-3"
-                    : "gap-3 px-3 py-2",
+                  collapsed ? "justify-center py-3" : "gap-3 px-3 py-2",
                   active
                     ? "bg-blue-50 text-blue-700 font-medium"
-                    : "text-gray-600 hover:bg-gray-100"
+                    : "text-gray-600 hover:bg-gray-100",
                 )}
               >
                 <Icon className="h-5 w-5" />
@@ -166,9 +175,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             onClick={handleLogout}
             className={cn(
               "w-full flex items-center rounded-lg text-sm transition text-red-600 hover:bg-red-50",
-              collapsed
-                ? "justify-center py-3"
-                : "gap-3 px-3 py-2"
+              collapsed ? "justify-center py-3" : "gap-3 px-3 py-2",
             )}
           >
             <LogOut className="h-5 w-5" />
@@ -178,9 +185,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* MAIN */}
-      <main className="flex-1 overflow-y-auto bg-gray-50">
-        {children}
-      </main>
+      <main className="flex-1 overflow-y-auto bg-gray-50">{children}</main>
     </div>
   );
 }
