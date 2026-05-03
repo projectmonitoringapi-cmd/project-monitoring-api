@@ -648,7 +648,7 @@ export default function EntryForm({
               />
 
               <InfoItem
-                label="Date Approved"
+                label={form.status === "Rejected" ? "Date Rejected" : "Date Approved"}
                 value={form.dateApproved || ""}
                 editable
                 type="datetime-local"

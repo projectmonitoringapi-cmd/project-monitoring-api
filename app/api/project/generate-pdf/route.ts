@@ -138,19 +138,24 @@ export async function POST(req: Request) {
        RENDER
     -------------------------------------------------------- */
     Object.keys(grouped).forEach((section) => {
-      // soft page break
-      if (doc.y > doc.page.height - 120) {
-        doc.addPage();
-        drawHeader();
-      }
-
-      /* SECTION HEADER */
+      /* SECTION TITLE (only once) */
       doc.font("Bold").fontSize(10).text(section, colCheckbox);
-
       doc.moveDown(0.4);
 
-      grouped[section].forEach((group: any) => {
-        /* SUBSECTION */
+      grouped[section].forEach((group: any, groupIndex: number) => {
+        /* -------------------------------------------------------
+       🔥 FORCE NEW PAGE PER GROUP
+    -------------------------------------------------------- */
+        if (groupIndex !== 0) {
+          doc.addPage();
+          drawHeader();
+
+          // OPTIONAL: repeat section title on new page
+          doc.font("Bold").fontSize(10).text(section, colCheckbox);
+          doc.moveDown(0.4);
+        }
+
+        /* SUBSECTION (I, II, etc.) */
         if (group.subsection) {
           doc.font("Bold").fontSize(9).text(group.subsection, colCheckbox);
           doc.moveDown(0.4);
@@ -158,15 +163,22 @@ export async function POST(req: Request) {
 
         /* ITEMS */
         group.items.forEach((item: any) => {
-          // soft page break (continuous flow)
           if (doc.y > doc.page.height - 100) {
             doc.addPage();
             drawHeader();
+
+            // repeat headers inside long group
+            doc.font("Bold").fontSize(10).text(section, colCheckbox);
+            doc.moveDown(0.4);
+
+            if (group.subsection) {
+              doc.font("Bold").fontSize(9).text(group.subsection, colCheckbox);
+              doc.moveDown(0.4);
+            }
           }
 
           const y = doc.y;
 
-          /* CHECKBOX */
           doc.rect(colCheckbox, y, checkboxSize, checkboxSize).stroke();
 
           if (item.checked) {
@@ -177,20 +189,14 @@ export async function POST(req: Request) {
               .stroke();
           }
 
-          /* NUMBER */
           doc.font("Regular").fontSize(9).text(`${item.itemNo}.`, colNumber, y);
 
-          /* TEXT (FLOW MODE) */
           doc.x = colText;
           doc.y = y;
-          doc.text(item.description, {
-            width: maxWidth,
-          });
+          doc.text(item.description, { width: maxWidth });
 
-          /* REMARKS */
           if (item.remarks) {
             doc.moveDown(0.2);
-
             doc.x = colText + 10;
             doc.text(`Remarks: ${item.remarks}`, {
               width: maxWidth - 10,
@@ -205,6 +211,55 @@ export async function POST(req: Request) {
 
       doc.moveDown(1);
     });
+
+    const range = doc.bufferedPageRange();
+    const lastPageIndex = range.count - 1;
+
+    // 🔥 go to last page
+    doc.switchToPage(lastPageIndex);
+
+    /* -------------------------------------------------------
+   CERTIFICATION BLOCK (LAST PAGE ONLY)
+-------------------------------------------------------- */
+
+    // position near bottom
+    const certStartY = doc.page.height - 140;
+    const certStartX = 60; // ✅ renamed
+    const certLineWidth = 300;
+
+    doc.font("Regular").fontSize(10);
+
+    // certification text
+    doc.text(
+      "I hereby certify that the above supporting documents are complete",
+      certStartX,
+      certStartY,
+    );
+
+    doc.moveDown(1.5);
+
+    // Print Name
+    doc.text("Print Name:", certStartX);
+    doc
+      .moveTo(certStartX + 90, doc.y - 2)
+      .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+      .stroke();
+
+    // Designation
+    doc.moveDown(1);
+    doc.text("Designation:", certStartX);
+    doc
+      .moveTo(certStartX + 90, doc.y - 2)
+      .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+      .stroke();
+
+    // Date
+    doc.moveDown(1);
+    doc.text("Date:", certStartX);
+    doc
+      .moveTo(certStartX + 90, doc.y - 2)
+      .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+      .stroke();
 
     doc.end();
 

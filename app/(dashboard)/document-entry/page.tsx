@@ -156,7 +156,7 @@ export default function MonitoringPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Date Submitted</TableHead>
-                <TableHead>Date Approved</TableHead>
+                <TableHead>Date Approved/Rejected</TableHead>
                 <TableHead>Process Time</TableHead>
                 <TableHead>Process Status</TableHead>
                 <TableHead>Updated By</TableHead>

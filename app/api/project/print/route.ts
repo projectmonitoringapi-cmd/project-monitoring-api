@@ -216,7 +216,7 @@ export async function GET(req: Request) {
       "Type",
       "Status",
       "Date Submitted",
-      "Date Approved",
+      "Date Approved/Rejected",
       "Process Time",
       "Process Status",
       "Updated By",

@@ -109,11 +109,14 @@ export async function GET(req: Request) {
     });
 
     /* ================= PDF SETUP ================= */
-    const fontRegular = path.join(process.cwd(), "public/fonts/Roboto-Regular.ttf");
+    const fontRegular = path.join(
+      process.cwd(),
+      "public/fonts/Roboto-Regular.ttf",
+    );
     const fontBold = path.join(process.cwd(), "public/fonts/Roboto-Bold.ttf");
 
     if (!fs.existsSync(fontRegular)) {
-      throw new Error("Roboto-Regular.ttf not found");
+      throw new Error("Roboto-Regular.ttf not found in /public/fonts");
     }
 
     const stream = new PassThrough();
@@ -123,6 +126,7 @@ export async function GET(req: Request) {
       layout: "landscape",
       margins: { top: 40, left: 40, right: 40, bottom: 30 },
       bufferPages: true,
+      font: fontRegular,
     });
 
     doc.pipe(stream);
@@ -206,23 +210,31 @@ export async function GET(req: Request) {
         row.projectId,
         row.billingType,
         row.billingCertificateNo,
-        row.amount,
+        formatPeso(row.amount),
         row.dateSubmitted,
         row.status,
         row.updatedBy,
         row.remarks,
       ];
 
+      /* ================= ROW HEIGHT ================= */
       let rowHeight = 0;
 
       values.forEach((val, i) => {
         const h = doc.heightOfString(String(val || ""), {
           width: widths[i],
         });
-        if (h > rowHeight) rowHeight = h;
+        rowHeight = Math.max(rowHeight, h);
       });
 
-      if (doc.y + rowHeight > doc.page.height - 60) {
+      // add padding for readability
+      rowHeight += 2;
+
+      /* ================= PAGE BREAK (FIXED) ================= */
+      if (
+        idx !== 0 && // 🔥 CRITICAL: prevents blank first page
+        doc.y + rowHeight + 10 > doc.page.height - 50
+      ) {
         doc.addPage();
         drawHeader();
         drawTableHeader();
@@ -230,20 +242,30 @@ export async function GET(req: Request) {
 
       const y = doc.y;
 
+      /* ================= ROW BACKGROUND ================= */
       if (idx % 2 === 0) {
-        doc.rect(40, y - 2, 800, rowHeight + 4).fill("#f5f5f5");
-        doc.fillColor("#000");
+        const totalWidth = widths.reduce((a, b) => a + b, 0);
+
+        doc.rect(40, y - 2, totalWidth, rowHeight + 4).fill("#f5f5f5");
+
+        doc.fillColor("#000"); // reset after fill
       }
 
-      values.forEach((val, i) => {
-        const x = 40 + widths.slice(0, i).reduce((a, b) => a + b, 0);
+      /* ================= CELLS ================= */
+      let currentX = 40;
 
+      values.forEach((val, i) => {
         doc
           .font("Regular")
           .fontSize(8)
-          .text(String(val || ""), x, y, { width: widths[i] });
+          .text(String(val || ""), currentX, y, {
+            width: widths[i],
+          });
+
+        currentX += widths[i];
       });
 
+      /* ================= MOVE CURSOR ================= */
       doc.y = y + rowHeight + 6;
     });
 
@@ -273,7 +295,19 @@ export async function GET(req: Request) {
 
     return NextResponse.json(
       { success: false, message: err.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
+}
+
+function formatPeso(value: any) {
+  const num = Number(value);
+
+  if (isNaN(num)) return value || "";
+
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+  }).format(num);
 }
