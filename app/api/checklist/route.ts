@@ -16,17 +16,24 @@ async function getSheetClient() {
   return google.sheets({ version: "v4", auth });
 }
 
+/* -------------------------------------------------------
+   🔧 NORMALIZER
+-------------------------------------------------------- */
+const normalize = (val: any) => (val ?? "").toString().trim();
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const typeId = searchParams.get("typeId");
+    const rawTypeId = searchParams.get("typeId");
 
-    if (!typeId) {
+    if (!rawTypeId) {
       return NextResponse.json(
         { error: "typeId is required" },
-        { status: 400 },
+        { status: 400 }
       );
     }
+
+    const typeId = normalize(rawTypeId);
 
     const sheets = await getSheetClient();
 
@@ -36,30 +43,48 @@ export async function GET(req: Request) {
     });
 
     const rows = res.data.values || [];
-
-    // Remove header
     const data = rows.slice(1);
 
-    // Map columns
+    /* -------------------------------------------------------
+       MAP + NORMALIZE + FILTER
+    -------------------------------------------------------- */
     const mapped = data
       .map((row) => ({
-        typeId: row[0],
-        section: row[1],
-        subsection: row[2],
-        itemNo: row[3],
-        description: row[4],
+        typeId: normalize(row[0]),
+        section: normalize(row[1]),
+        subsection: normalize(row[2]),
+        itemNo: normalize(row[3]),
+        description: normalize(row[4]),
         orderNo: Number(row[5]),
       }))
-      .filter((r) => r.typeId === typeId);
+      .filter((r) => r.typeId === typeId)
+      .sort((a, b) => a.orderNo - b.orderNo);
 
-    // ✅ Group by section + subsection
+    /* -------------------------------------------------------
+       GROUPING (KEEP FIRST SUBSECTION BLOCK ONLY)
+    -------------------------------------------------------- */
     const grouped: Record<string, any> = {};
+    const seenSubsection = new Set<string>();
 
     for (const item of mapped) {
-      const key = `${item.section}||${item.subsection}`;
+      const key = `${item.typeId}||${item.section}||${item.subsection}`;
+
+      const isStartOfBlock = item.itemNo === "1" || item.itemNo === 1;
+
+      // 🔥 If we've already processed this subsection and encounter another "1",
+      // it means a duplicate block → skip entirely
+      if (isStartOfBlock && seenSubsection.has(key)) {
+        continue;
+      }
+
+      // mark subsection as seen on first block
+      if (isStartOfBlock) {
+        seenSubsection.add(key);
+      }
 
       if (!grouped[key]) {
         grouped[key] = {
+          typeId: item.typeId,
           section: item.section,
           subsection: item.subsection,
           items: [],
@@ -74,18 +99,17 @@ export async function GET(req: Request) {
       });
     }
 
-    // Convert to array + sort
-    const result = Object.values(grouped).map((group: any) => ({
-      ...group,
-      items: group.items.sort((a: any, b: any) => a.orderNo - b.orderNo),
-    }));
+    /* -------------------------------------------------------
+       FINAL FORMAT
+    -------------------------------------------------------- */
+    const result = Object.values(grouped);
 
     return NextResponse.json(result);
   } catch (error: any) {
     console.error("Checklist API error:", error);
     return NextResponse.json(
       { error: "Failed to fetch checklist" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

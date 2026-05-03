@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
     }
 
     /* -------------------------------------------------------
-       ✅ TYPES THAT REQUIRE PER-GROUP PAGE
+       TYPES THAT REQUIRE PER-GROUP PAGE
     -------------------------------------------------------- */
     const PER_GROUP_PAGE_TYPES = new Set([
       "Variation Order (C.O./E.W.O./F.V.O.)",
@@ -37,25 +38,28 @@ export async function POST(req: Request) {
     const forcePerGroupPage = PER_GROUP_PAGE_TYPES.has(selectedType);
 
     /* -------------------------------------------------------
+       MAIN ROMAN GROUPS (ONLY THESE TRIGGER NEW PAGE)
+    -------------------------------------------------------- */
+    const MAIN_ROMAN_GROUPS = new Set([
+      "I. TO BE SUBMITTED BY THE CONTRACTOR",
+      "I. TO BE SUBMITTED BY THE CONTRACTOR/CONSULTANT",
+      "II. TO BE PREPARED BY IMPLEMENTING OFFICE",
+    ]);
+
+    const normalizeFull = (s?: string) => (s || "").trim().toUpperCase();
+
+    /* -------------------------------------------------------
        STREAM SETUP
     -------------------------------------------------------- */
     const fontRegular = path.join(
       process.cwd(),
-      "public",
-      "fonts",
-      "Roboto-Regular.ttf",
+      "public/fonts/Roboto-Regular.ttf",
     );
+    const fontBold = path.join(process.cwd(), "public/fonts/Roboto-Bold.ttf");
 
-    const fontBold = path.join(
-      process.cwd(),
-      "public",
-      "fonts",
-      "Roboto-Bold.ttf",
-    );
-
-    if (!fs.existsSync(fontRegular)) {
-      throw new Error("Roboto-Regular.ttf not found in /public/fonts");
-    }
+    if (!fs.existsSync(fontRegular))
+      throw new Error("Roboto-Regular.ttf not found");
+    if (!fs.existsSync(fontBold)) throw new Error("Roboto-Bold.ttf not found");
 
     const stream = new PassThrough();
 
@@ -119,12 +123,11 @@ export async function POST(req: Request) {
     };
 
     /* -------------------------------------------------------
-       CERTIFICATION FUNCTION
+       CERTIFICATION
     -------------------------------------------------------- */
     const drawCertification = () => {
       const certStartY = doc.page.height - 140;
       const certStartX = 60;
-      const certLineWidth = 300;
 
       doc.font("Regular").fontSize(10);
 
@@ -139,27 +142,24 @@ export async function POST(req: Request) {
       doc.text("Print Name:", certStartX);
       doc
         .moveTo(certStartX + 90, doc.y - 2)
-        .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+        .lineTo(certStartX + 390, doc.y - 2)
         .stroke();
 
       doc.moveDown(1);
       doc.text("Designation:", certStartX);
       doc
         .moveTo(certStartX + 90, doc.y - 2)
-        .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+        .lineTo(certStartX + 390, doc.y - 2)
         .stroke();
 
       doc.moveDown(1);
       doc.text("Date:", certStartX);
       doc
         .moveTo(certStartX + 90, doc.y - 2)
-        .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+        .lineTo(certStartX + 390, doc.y - 2)
         .stroke();
     };
 
-    /* -------------------------------------------------------
-       START FIRST PAGE
-    -------------------------------------------------------- */
     drawHeader();
 
     /* -------------------------------------------------------
@@ -171,9 +171,6 @@ export async function POST(req: Request) {
       return acc;
     }, {});
 
-    /* -------------------------------------------------------
-       LAYOUT CONFIG
-    -------------------------------------------------------- */
     const startX = 50;
     const checkboxSize = 10;
     const colCheckbox = startX;
@@ -189,10 +186,18 @@ export async function POST(req: Request) {
       doc.moveDown(0.4);
 
       grouped[section].forEach((group: any, groupIndex: number) => {
+        const subFull = normalizeFull(group.subsection);
+
+        const isRoman = MAIN_ROMAN_GROUPS.has(subFull);
+
         /* -------------------------------------------------------
-           ✅ CONDITIONAL NEW PAGE PER GROUP
-        -------------------------------------------------------- */
-        if (forcePerGroupPage && groupIndex !== 0) {
+       PAGE BREAK (ONLY HERE — SINGLE SOURCE OF TRUTH)
+    -------------------------------------------------------- */
+        if (isRoman && groupIndex !== 0) {
+          // ✅ finish previous page
+          drawCertification();
+
+          // ✅ move to next page
           doc.addPage();
           drawHeader();
 
@@ -251,29 +256,11 @@ export async function POST(req: Request) {
         });
 
         doc.moveDown(0.5);
-
-        /* -------------------------------------------------------
-           ✅ CERTIFICATION PER PAGE (IF REQUIRED)
-        -------------------------------------------------------- */
-        if (forcePerGroupPage) {
-          drawCertification();
-        }
       });
 
       doc.moveDown(1);
     });
-
-    /* -------------------------------------------------------
-       ✅ LAST PAGE CERTIFICATION (NON-PER-GROUP MODE)
-    -------------------------------------------------------- */
-    if (!forcePerGroupPage) {
-      const range = doc.bufferedPageRange();
-      const lastPageIndex = range.count - 1;
-
-      doc.switchToPage(lastPageIndex);
-      drawCertification();
-    }
-
+    drawCertification();
     doc.end();
 
     return new Response(webStream, {
