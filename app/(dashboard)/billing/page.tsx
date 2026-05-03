@@ -76,7 +76,7 @@ export default function MonitoringPage() {
 
   return (
     <div className="p-6 bg-white min-h-screen mt-2">
-      <div className="max-w-[1400px] mx-auto space-y-6">
+      <div className="max-w-[1600px] mx-auto space-y-6">
 
         {/* HEADER */}
         <div className="flex items-center justify-between border-b pb-4">

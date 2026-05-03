@@ -8,7 +8,7 @@ import path from "path";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { checklist } = body;
+    const { checklist, type } = body;
 
     if (!checklist || checklist.length === 0) {
       return NextResponse.json(
@@ -16,6 +16,25 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
+
+    /* -------------------------------------------------------
+       ✅ TYPES THAT REQUIRE PER-GROUP PAGE
+    -------------------------------------------------------- */
+    const PER_GROUP_PAGE_TYPES = new Set([
+      "Variation Order (C.O./E.W.O./F.V.O.)",
+      "Contract Time Extension",
+      "Contract Work Suspension",
+      "Contract Work Resumption",
+      "PERT/CPM/PDM",
+      "Advance Payment",
+      "First Progress Billing",
+      "Interim Progress Billing",
+      "Final Billing",
+      "Release of Retention",
+    ]);
+
+    const selectedType = (type || "").trim();
+    const forcePerGroupPage = PER_GROUP_PAGE_TYPES.has(selectedType);
 
     /* -------------------------------------------------------
        STREAM SETUP
@@ -33,10 +52,10 @@ export async function POST(req: Request) {
       "fonts",
       "Roboto-Bold.ttf",
     );
-    /* -------------------------------------------------------
-       2️⃣ Setup PDF (STREAMING)
-    -------------------------------------------------------- */
-    console.log(fontRegular, fontBold);
+
+    if (!fs.existsSync(fontRegular)) {
+      throw new Error("Roboto-Regular.ttf not found in /public/fonts");
+    }
 
     const stream = new PassThrough();
 
@@ -58,13 +77,6 @@ export async function POST(req: Request) {
       },
     });
 
-    /* -------------------------------------------------------
-       3️⃣ FONT FIX (CRITICAL - NO HELVETICA ERROR)
-    -------------------------------------------------------- */
-    if (!fs.existsSync(fontRegular)) {
-      throw new Error("Roboto-Regular.ttf not found in /public/fonts");
-    }
-
     doc.registerFont("Regular", fontRegular);
     doc.registerFont("Bold", fontBold);
     doc.font("Regular");
@@ -74,9 +86,6 @@ export async function POST(req: Request) {
     -------------------------------------------------------- */
     const logoPath = path.join(process.cwd(), "public/DPWH.png");
 
-    /* -------------------------------------------------------
-       HEADER FUNCTION
-    -------------------------------------------------------- */
     const drawHeader = () => {
       if (fs.existsSync(logoPath)) {
         doc.image(logoPath, 40, 30, { width: 50 });
@@ -106,8 +115,46 @@ export async function POST(req: Request) {
         });
 
       doc.moveDown(1);
+      doc.y = 120;
+    };
 
-      doc.y = 120; // consistent start
+    /* -------------------------------------------------------
+       CERTIFICATION FUNCTION
+    -------------------------------------------------------- */
+    const drawCertification = () => {
+      const certStartY = doc.page.height - 140;
+      const certStartX = 60;
+      const certLineWidth = 300;
+
+      doc.font("Regular").fontSize(10);
+
+      doc.text(
+        "I hereby certify that the above supporting documents are complete",
+        certStartX,
+        certStartY,
+      );
+
+      doc.moveDown(1.5);
+
+      doc.text("Print Name:", certStartX);
+      doc
+        .moveTo(certStartX + 90, doc.y - 2)
+        .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+        .stroke();
+
+      doc.moveDown(1);
+      doc.text("Designation:", certStartX);
+      doc
+        .moveTo(certStartX + 90, doc.y - 2)
+        .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+        .stroke();
+
+      doc.moveDown(1);
+      doc.text("Date:", certStartX);
+      doc
+        .moveTo(certStartX + 90, doc.y - 2)
+        .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
+        .stroke();
     };
 
     /* -------------------------------------------------------
@@ -138,24 +185,22 @@ export async function POST(req: Request) {
        RENDER
     -------------------------------------------------------- */
     Object.keys(grouped).forEach((section) => {
-      /* SECTION TITLE (only once) */
       doc.font("Bold").fontSize(10).text(section, colCheckbox);
       doc.moveDown(0.4);
 
       grouped[section].forEach((group: any, groupIndex: number) => {
         /* -------------------------------------------------------
-       🔥 FORCE NEW PAGE PER GROUP
-    -------------------------------------------------------- */
-        if (groupIndex !== 0) {
+           ✅ CONDITIONAL NEW PAGE PER GROUP
+        -------------------------------------------------------- */
+        if (forcePerGroupPage && groupIndex !== 0) {
           doc.addPage();
           drawHeader();
 
-          // OPTIONAL: repeat section title on new page
           doc.font("Bold").fontSize(10).text(section, colCheckbox);
           doc.moveDown(0.4);
         }
 
-        /* SUBSECTION (I, II, etc.) */
+        /* SUBSECTION */
         if (group.subsection) {
           doc.font("Bold").fontSize(9).text(group.subsection, colCheckbox);
           doc.moveDown(0.4);
@@ -163,11 +208,10 @@ export async function POST(req: Request) {
 
         /* ITEMS */
         group.items.forEach((item: any) => {
-          if (doc.y > doc.page.height - 100) {
+          if (doc.y > doc.page.height - 160) {
             doc.addPage();
             drawHeader();
 
-            // repeat headers inside long group
             doc.font("Bold").fontSize(10).text(section, colCheckbox);
             doc.moveDown(0.4);
 
@@ -207,59 +251,28 @@ export async function POST(req: Request) {
         });
 
         doc.moveDown(0.5);
+
+        /* -------------------------------------------------------
+           ✅ CERTIFICATION PER PAGE (IF REQUIRED)
+        -------------------------------------------------------- */
+        if (forcePerGroupPage) {
+          drawCertification();
+        }
       });
 
       doc.moveDown(1);
     });
 
-    const range = doc.bufferedPageRange();
-    const lastPageIndex = range.count - 1;
-
-    // 🔥 go to last page
-    doc.switchToPage(lastPageIndex);
-
     /* -------------------------------------------------------
-   CERTIFICATION BLOCK (LAST PAGE ONLY)
--------------------------------------------------------- */
+       ✅ LAST PAGE CERTIFICATION (NON-PER-GROUP MODE)
+    -------------------------------------------------------- */
+    if (!forcePerGroupPage) {
+      const range = doc.bufferedPageRange();
+      const lastPageIndex = range.count - 1;
 
-    // position near bottom
-    const certStartY = doc.page.height - 140;
-    const certStartX = 60; // ✅ renamed
-    const certLineWidth = 300;
-
-    doc.font("Regular").fontSize(10);
-
-    // certification text
-    doc.text(
-      "I hereby certify that the above supporting documents are complete",
-      certStartX,
-      certStartY,
-    );
-
-    doc.moveDown(1.5);
-
-    // Print Name
-    doc.text("Print Name:", certStartX);
-    doc
-      .moveTo(certStartX + 90, doc.y - 2)
-      .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
-      .stroke();
-
-    // Designation
-    doc.moveDown(1);
-    doc.text("Designation:", certStartX);
-    doc
-      .moveTo(certStartX + 90, doc.y - 2)
-      .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
-      .stroke();
-
-    // Date
-    doc.moveDown(1);
-    doc.text("Date:", certStartX);
-    doc
-      .moveTo(certStartX + 90, doc.y - 2)
-      .lineTo(certStartX + 90 + certLineWidth, doc.y - 2)
-      .stroke();
+      doc.switchToPage(lastPageIndex);
+      drawCertification();
+    }
 
     doc.end();
 

@@ -101,7 +101,7 @@ export default function EntryForm({
   );
 
   const sleep = (ms: number) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   type Project = {
     projectId: string;
@@ -346,20 +346,23 @@ export default function EntryForm({
 
   /* ================= PDF ================= */
 
-  async function generatePDF(checklist: ChecklistGroup[]) {
+  async function generatePDF(checklist: ChecklistGroup[], type: string) {
     const res = await fetch("/api/project/generate-pdf", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ checklist }),
+      body: JSON.stringify({
+        checklist,
+        type, // ✅ pass to backend
+      }),
     });
 
     if (!res.ok) {
       throw new Error("Failed to generate PDF");
     }
 
-    const blob = await res.blob(); // ✅ IMPORTANT
+    const blob = await res.blob();
 
     const url = window.URL.createObjectURL(blob);
 
@@ -516,7 +519,7 @@ export default function EntryForm({
         },
       );
 
-      generatePDF(checklist);
+      generatePDF(checklist, documentTypeDescription);
 
       await sleep(3000); // try 500–1000ms
 
@@ -648,7 +651,9 @@ export default function EntryForm({
               />
 
               <InfoItem
-                label={form.status === "Rejected" ? "Date Rejected" : "Date Approved"}
+                label={
+                  form.status === "Rejected" ? "Date Rejected" : "Date Approved"
+                }
                 value={form.dateApproved || ""}
                 editable
                 type="datetime-local"
@@ -862,5 +867,3 @@ function InfoItem({
     </div>
   );
 }
-
-
